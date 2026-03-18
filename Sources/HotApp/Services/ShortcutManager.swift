@@ -124,6 +124,45 @@ private func cgEventFlags(fromCarbon carbon: Int) -> CGEventFlags {
     return flags
 }
 
+// MARK: - SkyLight fast activation (bypasses Apple Event Manager)
+
+/// SkyLight fast-activation symbols, loaded once via dlsym.
+/// Both are deprecated/private but functional on macOS 14+.
+private let _skyLightSymbols: (
+    getProcessForPID: @convention(c) (pid_t, UnsafeMutablePointer<ProcessSerialNumber>) -> OSStatus,
+    setFrontProcess: @convention(c) (UnsafeMutablePointer<ProcessSerialNumber>, UInt32, UInt32) -> OSStatus
+)? = {
+    // GetProcessForPID lives in HIServices (part of ApplicationServices), unavailable in Swift
+    guard let hiServices = dlopen(
+        "/System/Library/Frameworks/ApplicationServices.framework/Frameworks/HIServices.framework/HIServices",
+        RTLD_LAZY
+    ) else { return nil }
+    guard let getPSN = dlsym(hiServices, "GetProcessForPID") else { return nil }
+    guard let skylight = dlopen(
+        "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight",
+        RTLD_LAZY
+    ) else { return nil }
+    guard let setFront = dlsym(skylight, "_SLPSSetFrontProcessWithOptions") else { return nil }
+    return (
+        getProcessForPID: unsafeBitCast(getPSN, to: (@convention(c) (pid_t, UnsafeMutablePointer<ProcessSerialNumber>) -> OSStatus).self),
+        setFrontProcess: unsafeBitCast(setFront, to: (@convention(c) (UnsafeMutablePointer<ProcessSerialNumber>, UInt32, UInt32) -> OSStatus).self)
+    )
+}()
+
+/// Activates an app via direct window server IPC (~1-5ms) instead of Apple Events (~10-50ms).
+/// Falls back to `NSRunningApplication.activate()` if the private SPI is unavailable or fails.
+private func _fastActivate(_ app: NSRunningApplication) {
+    if let syms = _skyLightSymbols {
+        var psn = ProcessSerialNumber()
+        if syms.getProcessForPID(app.processIdentifier, &psn) == noErr,
+           syms.setFrontProcess(&psn, 0, 0) == noErr
+        {
+            return
+        }
+    }
+    app.activate()
+}
+
 // MARK: - Execute toggle action (called from event tap thread)
 
 /// Executes a resolved toggle action. Thread-safe: activate/hide use Apple Event
@@ -133,7 +172,7 @@ private func _executeToggle(_ action: TapContext.ToggleAction) {
     case .hide(let app):
         app.hide()
     case .activate(let app):
-        app.activate()
+        _fastActivate(app)
     case .launch(let url):
         DispatchQueue.main.async {
             let config = NSWorkspace.OpenConfiguration()
@@ -180,8 +219,6 @@ private func _makeEventTap(
             guard !flags.isEmpty else {
                 return Unmanaged.passUnretained(event)
             }
-
-            log.debug("tap: keyCode=\(keyCode) rawFlags=\(rawFlags.rawValue, format: .hex) masked=\(flags.rawValue, format: .hex)")
 
             // Single lock acquisition: match shortcut + resolve running app state
             if let action = ctx.matchAndResolve(keyCode: keyCode, flags: flags) {
