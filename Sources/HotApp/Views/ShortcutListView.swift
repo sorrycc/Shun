@@ -8,6 +8,10 @@ struct ShortcutListView: View {
     @State private var showingAppSearch = false
     @State private var pendingDeleteIds: [UUID] = []
     @State private var showDeleteConfirmation = false
+    @State private var importAlertMessage: String?
+    @State private var showImportAlert = false
+
+    private let recipeService = RecipeService()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -38,6 +42,11 @@ struct ShortcutListView: View {
                 pendingDeleteIds = []
                 NotificationCenter.default.post(name: .shortcutsDidChange, object: nil)
             }
+        }
+        .alert("Recipe Import", isPresented: $showImportAlert) {
+            Button("OK") {}
+        } message: {
+            Text(importAlertMessage ?? "")
         }
         .onAppear {
             store.refreshStaleness()
@@ -100,6 +109,19 @@ struct ShortcutListView: View {
             .disabled(selection == nil)
 
             Spacer()
+
+            Button(action: importRecipe) {
+                Image(systemName: "square.and.arrow.down")
+                    .frame(width: 24, height: 24)
+            }
+            .help("Import Recipe")
+
+            Button(action: exportRecipe) {
+                Image(systemName: "square.and.arrow.up")
+                    .frame(width: 24, height: 24)
+            }
+            .disabled(store.shortcuts.isEmpty)
+            .help("Export Recipe")
         }
         .padding(8)
         .background(.bar)
@@ -117,12 +139,15 @@ struct ShortcutListView: View {
             provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) {
                 data, _ in
                 guard let data = data as? Data,
-                    let url = URL(dataRepresentation: data, relativeTo: nil),
-                    url.pathExtension == "app"
+                    let url = URL(dataRepresentation: data, relativeTo: nil)
                 else { return }
 
                 Task { @MainActor in
-                    addApp(from: url)
+                    if url.pathExtension == "hotrecipe" {
+                        importRecipe(from: url)
+                    } else if url.pathExtension == "app" {
+                        addApp(from: url)
+                    }
                 }
             }
             handled = true
@@ -148,6 +173,47 @@ struct ShortcutListView: View {
         )
         store.add(shortcut)
         NotificationCenter.default.post(name: .shortcutsDidChange, object: nil)
+    }
+
+    // MARK: - Recipe Import/Export
+
+    @MainActor
+    private func importRecipe() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.init(filenameExtension: "hotrecipe")!]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        importRecipe(from: url)
+    }
+
+    @MainActor
+    private func importRecipe(from url: URL) {
+        do {
+            let data = try Data(contentsOf: url)
+            let recipe = try recipeService.importRecipe(from: data)
+            let result = store.importRecipe(recipe)
+            NotificationCenter.default.post(name: .shortcutsDidChange, object: nil)
+            importAlertMessage = result.summary
+            showImportAlert = true
+        } catch {
+            importAlertMessage = error.localizedDescription
+            showImportAlert = true
+        }
+    }
+
+    @MainActor
+    private func exportRecipe() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.init(filenameExtension: "hotrecipe")!]
+        panel.nameFieldStringValue = "Shortcuts.hotrecipe"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let data = try recipeService.exportRecipe(from: store.shortcuts)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            importAlertMessage = "Export failed: \(error.localizedDescription)"
+            showImportAlert = true
+        }
     }
 }
 

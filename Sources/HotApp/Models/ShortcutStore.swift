@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import KeyboardShortcuts
 import Observation
@@ -112,6 +113,91 @@ final class ShortcutStore {
     var isFirstLaunch: Bool {
         !FileManager.default.fileExists(
             atPath: JSONFilePersistence.defaultFileURL.path)
+    }
+
+    func importRecipe(_ recipe: Recipe) -> ImportResult {
+        var result = ImportResult()
+        // Track combos assigned in this batch to detect intra-recipe duplicates
+        var batchCombos: Set<String> = []
+
+        // Collect existing combos for conflict detection
+        var existingCombos: Set<String> = []
+        for shortcut in shortcuts {
+            if let combo = KeyboardShortcuts.getShortcut(for: shortcut.keyboardShortcutName) {
+                existingCombos.insert("\(combo.carbonKeyCode)_\(combo.carbonModifiers)")
+            }
+        }
+
+        for entry in recipe.entries {
+            // Skip if app already has a shortcut
+            if shortcuts.contains(where: { $0.bundleIdentifier == entry.bundleIdentifier }) {
+                result.skippedDuplicate += 1
+                continue
+            }
+
+            // Resolve app location
+            guard let bundleURL = resolveAppURL(bundleIdentifier: entry.bundleIdentifier, displayName: entry.displayName) else {
+                result.skippedNotFound += 1
+                continue
+            }
+
+            let shortcut = AppShortcut(
+                bundleURL: bundleURL,
+                bundleIdentifier: entry.bundleIdentifier,
+                displayName: entry.displayName
+            )
+
+            // Check key combo conflict (existing + intra-batch)
+            let comboKey = "\(entry.keyCode)_\(entry.carbonModifiers)"
+            let hasConflict = existingCombos.contains(comboKey) || batchCombos.contains(comboKey)
+
+            shortcuts.append(shortcut)
+
+            if hasConflict {
+                result.skippedKeyConflict += 1
+            } else {
+                let combo = KeyboardShortcuts.Shortcut(
+                    carbonKeyCode: entry.keyCode,
+                    carbonModifiers: entry.carbonModifiers
+                )
+                KeyboardShortcuts.setShortcut(combo, for: shortcut.keyboardShortcutName)
+                batchCombos.insert(comboKey)
+            }
+
+            result.added += 1
+        }
+
+        if result.added > 0 {
+            saveImmediately()
+        }
+
+        return result
+    }
+
+    private func resolveAppURL(bundleIdentifier: String, displayName: String) -> URL? {
+        // 1. Exact match by bundle ID
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) {
+            return url
+        }
+
+        // 2. Fuzzy fallback: scan known directories for matching display name
+        let fm = FileManager.default
+        for directory in AppScanner.searchDirectories {
+            guard let contents = try? fm.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+
+            for url in contents where url.pathExtension == "app" {
+                let name = url.deletingPathExtension().lastPathComponent
+                if name.localizedCaseInsensitiveCompare(displayName) == .orderedSame {
+                    return url
+                }
+            }
+        }
+
+        return nil
     }
 
     func cleanupOrphanedDefaults() {
