@@ -6,6 +6,7 @@ struct AppSearchView: View {
     @State private var searchText = ""
     @State private var apps: [ScannedApp] = []
     @State private var isLoading = true
+    @State private var selectedIndex = 0
 
     var filteredApps: [ScannedApp] {
         if searchText.isEmpty {
@@ -29,6 +30,21 @@ struct AppSearchView: View {
             apps = await AppScanner.shared.scanAsync()
             isLoading = false
         }
+        .onChange(of: searchText) { _, _ in
+            selectedIndex = 0
+        }
+        .onKeyPress(.upArrow) {
+            if selectedIndex > 0 {
+                selectedIndex -= 1
+            }
+            return .handled
+        }
+        .onKeyPress(.downArrow) {
+            if selectedIndex < filteredApps.count - 1 {
+                selectedIndex += 1
+            }
+            return .handled
+        }
     }
 
     private var searchField: some View {
@@ -38,10 +54,7 @@ struct AppSearchView: View {
             TextField("Search applications...", text: $searchText)
                 .textFieldStyle(.plain)
                 .onSubmit {
-                    let existingIds = Set(store.shortcuts.map(\.bundleIdentifier))
-                    if let first = filteredApps.first(where: { !existingIds.contains($0.bundleIdentifier) }) {
-                        addApp(first)
-                    }
+                    addSelectedApp()
                 }
             Button("Done") {
                 dismiss()
@@ -65,37 +78,64 @@ struct AppSearchView: View {
     private var appList: some View {
         let existingIds = Set(store.shortcuts.map(\.bundleIdentifier))
 
-        return List(filteredApps) { app in
-            let alreadyAdded = existingIds.contains(app.bundleIdentifier)
+        return ScrollViewReader { proxy in
+            List {
+                ForEach(Array(filteredApps.enumerated()), id: \.element.id) { index, app in
+                    let alreadyAdded = existingIds.contains(app.bundleIdentifier)
+                    let isSelected = index == selectedIndex
 
-            Button(action: { if !alreadyAdded { addApp(app) } }) {
-                HStack(spacing: 12) {
-                    Image(nsImage: app.icon)
-                        .resizable()
-                        .frame(width: 32, height: 32)
+                    HStack(spacing: 12) {
+                        Image(nsImage: app.icon)
+                            .resizable()
+                            .frame(width: 32, height: 32)
 
-                    VStack(alignment: .leading) {
-                        Text(app.name)
-                            .lineLimit(1)
-                        Text(app.bundleIdentifier)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                        VStack(alignment: .leading) {
+                            Text(app.name)
+                                .lineLimit(1)
+                            Text(app.bundleIdentifier)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+
+                        Spacer()
+
+                        if alreadyAdded {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                        }
                     }
-
-                    Spacer()
-
-                    if alreadyAdded {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        selectedIndex = index
+                        if !alreadyAdded { addApp(app) }
+                    }
+                    .listRowBackground(
+                        isSelected
+                            ? Color.accentColor.opacity(0.2)
+                            : Color.clear
+                    )
+                    .id(app.id)
+                    .opacity(alreadyAdded ? 0.5 : 1.0)
+                }
+            }
+            .listStyle(.plain)
+            .onChange(of: selectedIndex) { _, newValue in
+                if newValue < filteredApps.count {
+                    withAnimation {
+                        proxy.scrollTo(filteredApps[newValue].id, anchor: nil)
                     }
                 }
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .opacity(alreadyAdded ? 0.5 : 1.0)
         }
-        .listStyle(.plain)
+    }
+
+    private func addSelectedApp() {
+        let existingIds = Set(store.shortcuts.map(\.bundleIdentifier))
+        guard selectedIndex < filteredApps.count else { return }
+        let app = filteredApps[selectedIndex]
+        guard !existingIds.contains(app.bundleIdentifier) else { return }
+        addApp(app)
     }
 
     private func addApp(_ app: ScannedApp) {
