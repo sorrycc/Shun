@@ -5,6 +5,7 @@ struct SettingsView: View {
     private enum Tab: String, CaseIterable {
         case shortcuts = "Shortcuts"
         case general = "General"
+        case insights = "Insights"
     }
 
     @State private var selectedTab: Tab = .shortcuts
@@ -18,6 +19,10 @@ struct SettingsView: View {
             GeneralSettingsView()
                 .tabItem { Label("General", systemImage: "gearshape") }
                 .tag(Tab.general)
+
+            InsightsView()
+                .tabItem { Label("Insights", systemImage: "chart.bar") }
+                .tag(Tab.insights)
         }
         .frame(minWidth: 520, minHeight: 400)
         .onDisappear {

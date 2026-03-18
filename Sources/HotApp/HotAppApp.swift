@@ -9,6 +9,7 @@ struct HotAppApp: App {
         Window("HotApp Settings", id: "settings") {
             SettingsView()
                 .environment(appDelegate.store)
+                .environment(appDelegate.usageStore)
                 .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { _ in
                     openWindow(id: "settings")
                 }

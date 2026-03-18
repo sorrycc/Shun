@@ -220,6 +220,7 @@ struct ShortcutListView: View {
 struct ShortcutRow: View {
     let shortcut: AppShortcut
     @Environment(ShortcutStore.self) private var store
+    @Environment(UsageStore.self) private var usageStore
     @State private var conflictNotice: String?
 
     var body: some View {
@@ -264,6 +265,13 @@ struct ShortcutRow: View {
                 Text("App not found")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+            } else {
+                let count = usageStore.count(for: shortcut.bundleIdentifier)
+                if count > 0 {
+                    Text("\(count)× past 7 days")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }

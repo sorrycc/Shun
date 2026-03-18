@@ -4,7 +4,8 @@ import ApplicationServices
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = ShortcutStore()
-    lazy var shortcutManager = ShortcutManager(store: store)
+    let usageStore = UsageStore()
+    lazy var shortcutManager = ShortcutManager(store: store, usageStore: usageStore)
     private var statusItemController: StatusItemController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -25,6 +26,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 openSettings()
             }
         }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        usageStore.saveImmediately()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

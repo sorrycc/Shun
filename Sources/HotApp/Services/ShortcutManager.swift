@@ -37,6 +37,9 @@ private final class TapContext: @unchecked Sendable {
     // Tap port for re-enabling on tapDisabledByTimeout
     private var _tapPort: CFMachPort?
 
+    // Usage logging callback (dispatches to main → UsageStore.log)
+    var logActivation: (@Sendable (String) -> Void)?
+
     // MARK: - Shortcut table
 
     var paused: Bool {
@@ -167,18 +170,21 @@ private func _fastActivate(_ app: NSRunningApplication) {
 
 /// Executes a resolved toggle action. Thread-safe: activate/hide use Apple Event
 /// transport. Only dispatches to main for cold launches (openApplication).
-private func _executeToggle(_ action: TapContext.ToggleAction) {
+private func _executeToggle(_ action: TapContext.ToggleAction, log: (@Sendable (String) -> Void)?) {
     switch action {
     case .hide(let app):
         app.hide()
     case .activate(let app):
         _fastActivate(app)
+        if let bundleId = app.bundleIdentifier { log?(bundleId) }
     case .launch(let url):
+        let bundleId = Bundle(url: url)?.bundleIdentifier
         DispatchQueue.main.async {
             let config = NSWorkspace.OpenConfiguration()
             config.activates = true
             NSWorkspace.shared.openApplication(at: url, configuration: config)
         }
+        if let bundleId { log?(bundleId) }
     }
 }
 
@@ -222,7 +228,7 @@ private func _makeEventTap(
 
             // Single lock acquisition: match shortcut + resolve running app state
             if let action = ctx.matchAndResolve(keyCode: keyCode, flags: flags) {
-                _executeToggle(action)
+                _executeToggle(action, log: ctx.logActivation)
                 return nil // consume event
             }
 
@@ -264,8 +270,16 @@ final class ShortcutManager {
     private var activationObservers: [NSObjectProtocol] = []
     private var workspaceObservers: [NSObjectProtocol] = []
 
-    init(store: ShortcutStore) {
+    private let usageStore: UsageStore
+
+    init(store: ShortcutStore, usageStore: UsageStore) {
         self.store = store
+        self.usageStore = usageStore
+        context.logActivation = { [weak usageStore] bundleId in
+            DispatchQueue.main.async {
+                usageStore?.log(bundleIdentifier: bundleId)
+            }
+        }
         seedRunningAppCache()
         observeAppActivation()
         observeWorkspace()
@@ -440,6 +454,7 @@ final class ShortcutManager {
         let name = shortcut.keyboardShortcutName
         let bundleIdentifier = shortcut.bundleIdentifier
         let bundleURL = shortcut.bundleURL
+        let usageStore = self.usageStore
 
         KeyboardShortcuts.onKeyUp(for: name) {
             let workspace = NSWorkspace.shared
@@ -457,6 +472,9 @@ final class ShortcutManager {
                         config.activates = true
                         workspace.openApplication(at: bundleURL, configuration: config)
                     }
+                }
+                Task { @MainActor in
+                    usageStore.log(bundleIdentifier: bundleIdentifier)
                 }
             }
         }
