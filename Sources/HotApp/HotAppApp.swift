@@ -1,0 +1,19 @@
+import SwiftUI
+
+@main
+struct HotAppApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Scene {
+        Window("HotApp Settings", id: "settings") {
+            SettingsView()
+                .environment(appDelegate.store)
+                .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { _ in
+                    openWindow(id: "settings")
+                }
+        }
+        .defaultSize(width: 520, height: 400)
+        .windowResizability(.contentSize)
+    }
+}
