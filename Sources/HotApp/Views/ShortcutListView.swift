@@ -90,10 +90,12 @@ struct ShortcutListView: View {
         HStack {
             Button(action: { showingAppSearch = true }) {
                 Image(systemName: "plus")
+                    .frame(width: 24, height: 24)
             }
 
             Button(action: confirmRemoveSelected) {
                 Image(systemName: "minus")
+                    .frame(width: 24, height: 24)
             }
             .disabled(selection == nil)
 
