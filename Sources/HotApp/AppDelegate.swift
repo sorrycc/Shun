@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -11,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.openSettings()
         }
 
+        checkAccessibilityPermission()
         shortcutManager.refreshRegistrations()
         observeWorkspaceNotifications()
         observeShortcutChanges()
@@ -53,6 +55,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] _ in
             Task { @MainActor in
                 self?.store.refreshStaleness()
+            }
+        }
+    }
+
+    private func checkAccessibilityPermission() {
+        let trusted = AXIsProcessTrustedWithOptions(
+            ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+        )
+        if !trusted {
+            let alert = NSAlert()
+            alert.messageText = "Accessibility Permission Required"
+            alert.informativeText = "HotApp needs Accessibility access to register global hotkeys. Please grant access in System Settings → Privacy & Security → Accessibility, then relaunch."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Open System Settings")
+            alert.addButton(withTitle: "Later")
+            if alert.runModal() == .alertFirstButtonReturn {
+                NSWorkspace.shared.open(
+                    URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
+                )
             }
         }
     }
