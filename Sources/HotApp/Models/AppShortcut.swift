@@ -27,7 +27,7 @@ struct AppShortcut: Identifiable, Codable, Sendable {
         self.displayName = displayName
         self.shortcutName = "hotapp_\(id.uuidString)"
         self.isEnabled = isEnabled
-        self.isStale = !FileManager.default.fileExists(atPath: bundleURL.path)
+        self.isStale = false
     }
 
     // MARK: - Codable
@@ -44,7 +44,7 @@ struct AppShortcut: Identifiable, Codable, Sendable {
         displayName = try container.decode(String.self, forKey: .displayName)
         shortcutName = try container.decode(String.self, forKey: .shortcutName)
         isEnabled = try container.decode(Bool.self, forKey: .isEnabled)
-        isStale = !FileManager.default.fileExists(atPath: bundleURL.path)
+        isStale = false
     }
 
     // MARK: - Equatable / Hashable (exclude isStale)

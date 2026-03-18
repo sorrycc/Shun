@@ -8,6 +8,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItemController: StatusItemController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        store.shortcutManager = shortcutManager
+
         statusItemController = StatusItemController(store: store) { [weak self] in
             self?.openSettings()
         }
@@ -42,9 +44,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             forName: NSWorkspace.didLaunchApplicationNotification,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
+            let bundleId = (notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier
             Task { @MainActor in
-                self?.store.refreshStaleness()
+                if let bundleId {
+                    self?.store.refreshStaleness(for: bundleId)
+                } else {
+                    self?.store.refreshStaleness()
+                }
             }
         }
 
@@ -52,9 +59,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             forName: NSWorkspace.didTerminateApplicationNotification,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
+            let bundleId = (notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier
             Task { @MainActor in
-                self?.store.refreshStaleness()
+                if let bundleId {
+                    self?.store.refreshStaleness(for: bundleId)
+                } else {
+                    self?.store.refreshStaleness()
+                }
             }
         }
     }

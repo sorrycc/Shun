@@ -199,6 +199,14 @@ final class ShortcutManager {
         }
     }
 
+    func register(_ shortcut: AppShortcut) {
+        refreshRegistrations()
+    }
+
+    func unregister(_ shortcut: AppShortcut) {
+        refreshRegistrations()
+    }
+
     // MARK: - Pause when our app is active (Recorder needs events)
 
     private func observeAppActivation() {

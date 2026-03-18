@@ -20,6 +20,9 @@ struct SettingsView: View {
                 .tag(Tab.general)
         }
         .frame(minWidth: 520, minHeight: 400)
+        .onDisappear {
+            AppScanner.shared.invalidateCache()
+        }
     }
 }
 

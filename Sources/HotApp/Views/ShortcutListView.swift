@@ -6,6 +6,8 @@ struct ShortcutListView: View {
     @Environment(ShortcutStore.self) private var store
     @State private var selection: UUID?
     @State private var showingAppSearch = false
+    @State private var pendingDeleteIds: [UUID] = []
+    @State private var showDeleteConfirmation = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -22,6 +24,33 @@ struct ShortcutListView: View {
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             handleDrop(providers)
         }
+        .confirmationDialog(
+            deleteConfirmationTitle,
+            isPresented: $showDeleteConfirmation
+        ) {
+            Button("Remove", role: .destructive) {
+                for id in pendingDeleteIds {
+                    store.remove(id: id)
+                }
+                if pendingDeleteIds.contains(where: { $0 == selection }) {
+                    selection = nil
+                }
+                pendingDeleteIds = []
+                NotificationCenter.default.post(name: .shortcutsDidChange, object: nil)
+            }
+        }
+        .onAppear {
+            store.refreshStaleness()
+        }
+    }
+
+    private var deleteConfirmationTitle: String {
+        if pendingDeleteIds.count == 1,
+           let shortcut = store.shortcuts.first(where: { $0.id == pendingDeleteIds.first })
+        {
+            return "Remove shortcut for \(shortcut.displayName)?"
+        }
+        return "Remove \(pendingDeleteIds.count) shortcuts?"
     }
 
     private var emptyState: some View {
@@ -50,10 +79,8 @@ struct ShortcutListView: View {
                 NotificationCenter.default.post(name: .shortcutsDidChange, object: nil)
             }
             .onDelete { indexSet in
-                for index in indexSet {
-                    store.remove(id: store.shortcuts[index].id)
-                }
-                NotificationCenter.default.post(name: .shortcutsDidChange, object: nil)
+                pendingDeleteIds = indexSet.map { store.shortcuts[$0].id }
+                showDeleteConfirmation = true
             }
         }
         .listStyle(.inset(alternatesRowBackgrounds: true))
@@ -65,7 +92,7 @@ struct ShortcutListView: View {
                 Image(systemName: "plus")
             }
 
-            Button(action: removeSelected) {
+            Button(action: confirmRemoveSelected) {
                 Image(systemName: "minus")
             }
             .disabled(selection == nil)
@@ -76,11 +103,10 @@ struct ShortcutListView: View {
         .background(.bar)
     }
 
-    private func removeSelected() {
+    private func confirmRemoveSelected() {
         guard let id = selection else { return }
-        store.remove(id: id)
-        selection = nil
-        NotificationCenter.default.post(name: .shortcutsDidChange, object: nil)
+        pendingDeleteIds = [id]
+        showDeleteConfirmation = true
     }
 
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
@@ -126,13 +152,22 @@ struct ShortcutListView: View {
 struct ShortcutRow: View {
     let shortcut: AppShortcut
     @Environment(ShortcutStore.self) private var store
+    @State private var conflictNotice: String?
 
     var body: some View {
         HStack(spacing: 12) {
             appIcon
             appName
             Spacer()
-            recorder
+            VStack(alignment: .trailing, spacing: 2) {
+                recorder
+                if let conflictNotice {
+                    Text(conflictNotice)
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                        .transition(.opacity)
+                }
+            }
             enableToggle
         }
         .padding(.vertical, 4)
@@ -148,7 +183,7 @@ struct ShortcutRow: View {
     }
 
     private var appIcon: some View {
-        Image(nsImage: NSWorkspace.shared.icon(forFile: shortcut.bundleURL.path))
+        Image(nsImage: AppScanner.shared.cachedIcon(for: shortcut.bundleURL))
             .resizable()
             .frame(width: 32, height: 32)
     }
@@ -168,7 +203,8 @@ struct ShortcutRow: View {
     private var recorder: some View {
         KeyboardShortcuts.Recorder(for: shortcut.keyboardShortcutName)
             .onChange(of: KeyboardShortcuts.getShortcut(for: shortcut.keyboardShortcutName)) {
-                _, _ in
+                _, newValue in
+                resolveConflicts(newShortcut: newValue)
                 NotificationCenter.default.post(name: .shortcutsDidChange, object: nil)
             }
     }
@@ -178,10 +214,31 @@ struct ShortcutRow: View {
             get: { shortcut.isEnabled },
             set: { _ in
                 store.toggleEnabled(id: shortcut.id)
-                NotificationCenter.default.post(name: .shortcutsDidChange, object: nil)
             }
         ))
         .toggleStyle(.switch)
         .labelsHidden()
+    }
+
+    private func resolveConflicts(newShortcut: KeyboardShortcuts.Shortcut?) {
+        guard let newShortcut else {
+            conflictNotice = nil
+            return
+        }
+
+        for other in store.shortcuts where other.id != shortcut.id {
+            if let otherCombo = KeyboardShortcuts.getShortcut(for: other.keyboardShortcutName),
+               otherCombo == newShortcut
+            {
+                KeyboardShortcuts.reset(other.keyboardShortcutName)
+                conflictNotice = "Reassigned from \(other.displayName)"
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(3))
+                    conflictNotice = nil
+                }
+                return
+            }
+        }
+        conflictNotice = nil
     }
 }

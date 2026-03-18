@@ -7,14 +7,11 @@ struct AppSearchView: View {
     @State private var apps: [ScannedApp] = []
     @State private var isLoading = true
 
-    private let scanner = AppScanner()
-
     var filteredApps: [ScannedApp] {
-        let allApps = apps
         if searchText.isEmpty {
-            return allApps
+            return apps
         }
-        return allApps.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+        return apps.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
     }
 
     var body: some View {
@@ -29,7 +26,7 @@ struct AppSearchView: View {
         }
         .frame(width: 400, height: 500)
         .task {
-            apps = scanner.scan()
+            apps = await AppScanner.shared.scanAsync()
             isLoading = false
         }
     }
@@ -46,6 +43,10 @@ struct AppSearchView: View {
                         addApp(first)
                     }
                 }
+            Button("Done") {
+                dismiss()
+            }
+            .buttonStyle(.bordered)
         }
         .padding(12)
     }
@@ -85,12 +86,8 @@ struct AppSearchView: View {
                     Spacer()
 
                     if alreadyAdded {
-                        Text("Added")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 2)
-                            .background(.secondary.opacity(0.15), in: Capsule())
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
                     }
                 }
                 .contentShape(Rectangle())
@@ -109,6 +106,5 @@ struct AppSearchView: View {
         )
         store.add(shortcut)
         NotificationCenter.default.post(name: .shortcutsDidChange, object: nil)
-        dismiss()
     }
 }
