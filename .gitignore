@@ -1,3 +1,5 @@
 /.build
 /HotApp.app
-
+.DS_Store
+*.xcodeproj
+.swiftpm/
