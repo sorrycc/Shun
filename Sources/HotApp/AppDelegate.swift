@@ -73,7 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func checkAccessibilityPermission() {
         let trusted = AXIsProcessTrustedWithOptions(
-            ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+            ["AXTrustedCheckOptionPrompt": false] as CFDictionary
         )
         if !trusted {
             let alert = NSAlert()
