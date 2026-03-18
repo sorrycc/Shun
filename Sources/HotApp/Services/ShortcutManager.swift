@@ -9,17 +9,20 @@ private let log = Logger(subsystem: "com.hotapp", category: "ShortcutManager")
 // MARK: - Lookup entry for CGEvent tap matching
 
 private struct ShortcutEntry {
-    let keyCode: Int64
-    let modifierMask: CGEventFlags
     let bundleIdentifier: String
     let bundleURL: URL
+}
+
+private struct ShortcutKey: Hashable {
+    let keyCode: Int64
+    let modifierMask: UInt64
 }
 
 // MARK: - Thread-safe lookup table + pause flag
 
 private final class AtomicLookup: @unchecked Sendable {
     private let lock = OSAllocatedUnfairLock()
-    private var entries: [ShortcutEntry] = []
+    private var table: [ShortcutKey: ShortcutEntry] = [:]
     private var _paused = false
 
     var paused: Bool {
@@ -27,14 +30,20 @@ private final class AtomicLookup: @unchecked Sendable {
         set { lock.withLock { _paused = newValue } }
     }
 
-    func update(_ newEntries: [ShortcutEntry]) {
-        lock.withLock { entries = newEntries }
+    func update(_ newEntries: [(key: ShortcutKey, entry: ShortcutEntry)]) {
+        lock.withLock {
+            table = Dictionary(newEntries.map { ($0.key, $0.entry) }, uniquingKeysWith: { _, last in last })
+        }
+    }
+
+    var isEmpty: Bool {
+        lock.withLock { table.isEmpty }
     }
 
     func match(keyCode: Int64, flags: CGEventFlags) -> ShortcutEntry? {
         lock.withLock {
             guard !_paused else { return nil }
-            return entries.first { $0.keyCode == keyCode && $0.modifierMask == flags }
+            return table[ShortcutKey(keyCode: keyCode, modifierMask: flags.rawValue)]
         }
     }
 }
@@ -53,6 +62,31 @@ private func cgEventFlags(fromCarbon carbon: Int) -> CGEventFlags {
     if carbon & controlKey == controlKey { flags.insert(.maskControl) }
     if carbon & optionKey == optionKey { flags.insert(.maskAlternate) }
     return flags
+}
+
+// MARK: - Fast app toggle (called directly from event tap thread)
+
+/// Activates or hides the target app. Thread-safe: NSRunningApplication.activate/hide
+/// use Apple Event transport. Only dispatches to main for cold launches (openApplication).
+private func _toggleApp(bundleIdentifier: String, bundleURL: URL) {
+    let workspace = NSWorkspace.shared
+    if let frontmost = workspace.frontmostApplication,
+       frontmost.bundleIdentifier == bundleIdentifier
+    {
+        frontmost.hide()
+    } else {
+        let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
+        if let app = running.first {
+            app.activate()
+        } else {
+            // Cold launch — openApplication requires main thread
+            DispatchQueue.main.async {
+                let config = NSWorkspace.OpenConfiguration()
+                config.activates = true
+                workspace.openApplication(at: bundleURL, configuration: config)
+            }
+        }
+    }
 }
 
 // MARK: - CGEvent tap factory (free function to avoid Swift 6.2.1 SendNonSendable crash)
@@ -97,12 +131,7 @@ private func _makeEventTap(
 
             // match() returns nil when paused (app is active / Recorder in use)
             if let entry = lookup.match(keyCode: keyCode, flags: flags) {
-                DispatchQueue.main.async {
-                    ShortcutManager.toggleApp(
-                        bundleIdentifier: entry.bundleIdentifier,
-                        bundleURL: entry.bundleURL
-                    )
-                }
+                _toggleApp(bundleIdentifier: entry.bundleIdentifier, bundleURL: entry.bundleURL)
                 return nil // consume event
             }
 
@@ -159,7 +188,7 @@ final class ShortcutManager {
         }
 
         // Build new lookup entries
-        var entries: [ShortcutEntry] = []
+        var entries: [(key: ShortcutKey, entry: ShortcutEntry)] = []
         if store.globalEnabled {
             for shortcut in store.shortcuts where shortcut.isEnabled {
                 guard let ks = KeyboardShortcuts.getShortcut(for: shortcut.keyboardShortcutName) else {
@@ -168,12 +197,12 @@ final class ShortcutManager {
                 }
                 let flags = cgEventFlags(fromCarbon: ks.carbonModifiers)
                 log.debug("refresh: \(shortcut.displayName) keyCode=\(ks.carbonKeyCode) carbonMod=\(UInt(bitPattern: ks.carbonModifiers), format: .hex) cgFlags=\(flags.rawValue, format: .hex)")
-                entries.append(ShortcutEntry(
-                    keyCode: Int64(ks.carbonKeyCode),
-                    modifierMask: flags,
+                let key = ShortcutKey(keyCode: Int64(ks.carbonKeyCode), modifierMask: flags.rawValue)
+                let entry = ShortcutEntry(
                     bundleIdentifier: shortcut.bundleIdentifier,
                     bundleURL: shortcut.bundleURL
-                ))
+                )
+                entries.append((key: key, entry: entry))
             }
         }
         log.debug("refresh: \(entries.count) entries registered (globalEnabled=\(self.store.globalEnabled))")
@@ -188,7 +217,7 @@ final class ShortcutManager {
 
         // Ensure tap exists (or re-enable if macOS disabled it)
         if let tap = eventTap {
-            let shouldEnable = store.globalEnabled && !entries.isEmpty
+            let shouldEnable = store.globalEnabled && !lookup.isEmpty
             if !CGEvent.tapIsEnabled(tap: tap) && shouldEnable {
                 CGEvent.tapEnable(tap: tap, enable: true)
             } else if !shouldEnable {
@@ -246,22 +275,6 @@ final class ShortcutManager {
         self.tapThread = result.thread
     }
 
-    // MARK: - App toggling
-
-    @MainActor
-    fileprivate static func toggleApp(bundleIdentifier: String, bundleURL: URL) {
-        let workspace = NSWorkspace.shared
-        if let frontmost = workspace.frontmostApplication,
-           frontmost.bundleIdentifier == bundleIdentifier
-        {
-            frontmost.hide()
-        } else {
-            let config = NSWorkspace.OpenConfiguration()
-            config.activates = true
-            workspace.openApplication(at: bundleURL, configuration: config)
-        }
-    }
-
     // MARK: - Carbon fallback (original KeyboardShortcuts-based dispatch)
 
     private func refreshCarbonRegistrations() {
@@ -278,7 +291,7 @@ final class ShortcutManager {
         let bundleURL = shortcut.bundleURL
 
         KeyboardShortcuts.onKeyUp(for: name) {
-            Self.toggleApp(bundleIdentifier: bundleIdentifier, bundleURL: bundleURL)
+            _toggleApp(bundleIdentifier: bundleIdentifier, bundleURL: bundleURL)
         }
     }
 
