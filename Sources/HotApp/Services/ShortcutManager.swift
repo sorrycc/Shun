@@ -6,7 +6,7 @@ import os
 
 private let log = Logger(subsystem: "com.hotapp", category: "ShortcutManager")
 
-// MARK: - Lookup entry for CGEvent tap matching
+// MARK: - Shortcut lookup types
 
 private struct ShortcutEntry {
     let bundleIdentifier: String
@@ -18,39 +18,99 @@ private struct ShortcutKey: Hashable {
     let modifierMask: UInt64
 }
 
-// MARK: - Thread-safe lookup table + pause flag
+// MARK: - Unified tap context (thread-safe)
 
-private final class AtomicLookup: @unchecked Sendable {
+/// Holds all state needed by the CGEvent tap callback: shortcut lookup table,
+/// running app cache, frontmost app, pause flag, and tap port for re-enabling.
+/// Single OSAllocatedUnfairLock — all operations are sub-microsecond dictionary lookups.
+private final class TapContext: @unchecked Sendable {
     private let lock = OSAllocatedUnfairLock()
+
+    // Shortcut lookup (updated on shortcut CRUD)
     private var table: [ShortcutKey: ShortcutEntry] = [:]
     private var _paused = false
+
+    // Running app cache (updated via workspace notifications)
+    private var _runningApps: [String: NSRunningApplication] = [:]
+    private var _frontmostApp: NSRunningApplication?
+
+    // Tap port for re-enabling on tapDisabledByTimeout
+    private var _tapPort: CFMachPort?
+
+    // MARK: - Shortcut table
 
     var paused: Bool {
         get { lock.withLock { _paused } }
         set { lock.withLock { _paused = newValue } }
     }
 
-    func update(_ newEntries: [(key: ShortcutKey, entry: ShortcutEntry)]) {
+    func updateShortcuts(_ entries: [(key: ShortcutKey, entry: ShortcutEntry)]) {
         lock.withLock {
-            table = Dictionary(newEntries.map { ($0.key, $0.entry) }, uniquingKeysWith: { _, last in last })
+            table = Dictionary(entries.map { ($0.key, $0.entry) }, uniquingKeysWith: { _, last in last })
         }
     }
 
-    var isEmpty: Bool {
+    var shortcutsEmpty: Bool {
         lock.withLock { table.isEmpty }
     }
 
-    func match(keyCode: Int64, flags: CGEventFlags) -> ShortcutEntry? {
+    // MARK: - Running app cache
+
+    func updateRunningApp(bundleId: String, app: NSRunningApplication) {
+        lock.withLock { _runningApps[bundleId] = app }
+    }
+
+    func removeRunningApp(bundleId: String) {
+        lock.withLock { _ = _runningApps.removeValue(forKey: bundleId) }
+    }
+
+    func updateFrontmost(_ app: NSRunningApplication?) {
+        lock.withLock { _frontmostApp = app }
+    }
+
+    // MARK: - Tap port
+
+    var tapPort: CFMachPort? {
+        get { lock.withLock { _tapPort } }
+        set { lock.withLock { _tapPort = newValue } }
+    }
+
+    // MARK: - Hot path: match + resolve in one lock acquisition
+
+    enum ToggleAction {
+        case hide(NSRunningApplication)
+        case activate(NSRunningApplication)
+        case launch(URL)
+    }
+
+    func matchAndResolve(keyCode: Int64, flags: CGEventFlags) -> ToggleAction? {
         lock.withLock {
             guard !_paused else { return nil }
-            return table[ShortcutKey(keyCode: keyCode, modifierMask: flags.rawValue)]
+            guard let entry = table[ShortcutKey(keyCode: keyCode, modifierMask: flags.rawValue)] else {
+                return nil
+            }
+
+            // Target is frontmost → hide (toggle)
+            if let frontmost = _frontmostApp,
+               frontmost.bundleIdentifier == entry.bundleIdentifier
+            {
+                return .hide(frontmost)
+            }
+
+            // Target is running → activate
+            if let app = _runningApps[entry.bundleIdentifier], !app.isTerminated {
+                return .activate(app)
+            }
+
+            // Target not running → cold launch
+            return .launch(entry.bundleURL)
         }
     }
 }
 
 // MARK: - Modifier flag helpers
 
-/// Mask to extract only ⌃⌥⇧⌘ from CGEventFlags, ignoring capsLock/numPad/fn/etc.
+/// Mask to extract only control/option/shift/command from CGEventFlags.
 private let modifierOnlyMask: CGEventFlags = [
     .maskCommand, .maskShift, .maskControl, .maskAlternate,
 ]
@@ -64,38 +124,29 @@ private func cgEventFlags(fromCarbon carbon: Int) -> CGEventFlags {
     return flags
 }
 
-// MARK: - Fast app toggle (called directly from event tap thread)
+// MARK: - Execute toggle action (called from event tap thread)
 
-/// Activates or hides the target app. Thread-safe: NSRunningApplication.activate/hide
-/// use Apple Event transport. Only dispatches to main for cold launches (openApplication).
-private func _toggleApp(bundleIdentifier: String, bundleURL: URL) {
-    let workspace = NSWorkspace.shared
-    if let frontmost = workspace.frontmostApplication,
-       frontmost.bundleIdentifier == bundleIdentifier
-    {
-        frontmost.hide()
-    } else {
-        let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
-        if let app = running.first {
-            app.activate()
-        } else {
-            // Cold launch — openApplication requires main thread
-            DispatchQueue.main.async {
-                let config = NSWorkspace.OpenConfiguration()
-                config.activates = true
-                workspace.openApplication(at: bundleURL, configuration: config)
-            }
+/// Executes a resolved toggle action. Thread-safe: activate/hide use Apple Event
+/// transport. Only dispatches to main for cold launches (openApplication).
+private func _executeToggle(_ action: TapContext.ToggleAction) {
+    switch action {
+    case .hide(let app):
+        app.hide()
+    case .activate(let app):
+        app.activate()
+    case .launch(let url):
+        DispatchQueue.main.async {
+            let config = NSWorkspace.OpenConfiguration()
+            config.activates = true
+            NSWorkspace.shared.openApplication(at: url, configuration: config)
         }
     }
 }
 
 // MARK: - CGEvent tap factory (free function to avoid Swift 6.2.1 SendNonSendable crash)
 
-/// Extracted from ShortcutManager.createTap() because the compiler's SendNonSendable
-/// region analysis crashes when a @MainActor method contains CGEvent.tapCreate callback
-/// + Thread closure + Unmanaged pointer roundtrip in the same function body.
 private func _makeEventTap(
-    lookup: AtomicLookup
+    context: TapContext
 ) -> (tap: CFMachPort, source: CFRunLoopSource, thread: Thread)? {
     let tap = CGEvent.tapCreate(
         tap: .cgSessionEventTap,
@@ -103,10 +154,13 @@ private func _makeEventTap(
         options: .defaultTap,
         eventsOfInterest: CGEventMask(1 << CGEventType.keyDown.rawValue),
         callback: { _, type, event, userInfo -> Unmanaged<CGEvent>? in
-            let lookup = Unmanaged<AtomicLookup>.fromOpaque(userInfo!).takeUnretainedValue()
+            let ctx = Unmanaged<TapContext>.fromOpaque(userInfo!).takeUnretainedValue()
 
-            // If macOS disabled our tap, pass through
+            // Re-enable tap if macOS disabled it (timeout or user input)
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                if let port = ctx.tapPort {
+                    CGEvent.tapEnable(tap: port, enable: true)
+                }
                 return Unmanaged.passUnretained(event)
             }
 
@@ -129,15 +183,15 @@ private func _makeEventTap(
 
             log.debug("tap: keyCode=\(keyCode) rawFlags=\(rawFlags.rawValue, format: .hex) masked=\(flags.rawValue, format: .hex)")
 
-            // match() returns nil when paused (app is active / Recorder in use)
-            if let entry = lookup.match(keyCode: keyCode, flags: flags) {
-                _toggleApp(bundleIdentifier: entry.bundleIdentifier, bundleURL: entry.bundleURL)
+            // Single lock acquisition: match shortcut + resolve running app state
+            if let action = ctx.matchAndResolve(keyCode: keyCode, flags: flags) {
+                _executeToggle(action)
                 return nil // consume event
             }
 
             return Unmanaged.passUnretained(event)
         },
-        userInfo: Unmanaged.passUnretained(lookup).toOpaque()
+        userInfo: Unmanaged.passUnretained(context).toOpaque()
     )
 
     guard let tap else { return nil }
@@ -161,7 +215,7 @@ private func _makeEventTap(
 @MainActor
 final class ShortcutManager {
     private let store: ShortcutStore
-    private let lookup = AtomicLookup()
+    private let context = TapContext()
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -171,13 +225,14 @@ final class ShortcutManager {
     private var usingCarbonFallback = false
 
     private var activationObservers: [NSObjectProtocol] = []
+    private var workspaceObservers: [NSObjectProtocol] = []
 
     init(store: ShortcutStore) {
         self.store = store
+        seedRunningAppCache()
         observeAppActivation()
+        observeWorkspace()
     }
-
-    // No deinit needed — ShortcutManager lives for the app's entire lifetime (owned by AppDelegate).
 
     // MARK: - Public
 
@@ -206,18 +261,16 @@ final class ShortcutManager {
             }
         }
         log.debug("refresh: \(entries.count) entries registered (globalEnabled=\(self.store.globalEnabled))")
-        lookup.update(entries)
+        context.updateShortcuts(entries)
 
         // Tear down Carbon hotkeys that KeyboardShortcuts.Recorder auto-registers
-        // via RegisterEventHotKey. They can intercept events before our CGEvent tap,
-        // breaking Karabiner hyper key (synthetic ⌃⌥⇧⌘).
         for shortcut in store.shortcuts {
             KeyboardShortcuts.disable(shortcut.keyboardShortcutName)
         }
 
         // Ensure tap exists (or re-enable if macOS disabled it)
         if let tap = eventTap {
-            let shouldEnable = store.globalEnabled && !lookup.isEmpty
+            let shouldEnable = store.globalEnabled && !context.shortcutsEmpty
             if !CGEvent.tapIsEnabled(tap: tap) && shouldEnable {
                 CGEvent.tapEnable(tap: tap, enable: true)
             } else if !shouldEnable {
@@ -236,17 +289,76 @@ final class ShortcutManager {
         refreshRegistrations()
     }
 
+    // MARK: - Running app cache
+
+    /// Seed the cache with all currently running apps on init.
+    private func seedRunningAppCache() {
+        for app in NSWorkspace.shared.runningApplications {
+            if let bundleId = app.bundleIdentifier {
+                context.updateRunningApp(bundleId: bundleId, app: app)
+            }
+        }
+        context.updateFrontmost(NSWorkspace.shared.frontmostApplication)
+    }
+
+    /// Observe workspace notifications to keep running app cache fresh.
+    private func observeWorkspace() {
+        let center = NSWorkspace.shared.notificationCenter
+        let ctx = self.context
+
+        let didLaunch = center.addObserver(
+            forName: NSWorkspace.didLaunchApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { notification in
+            if let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+               let bundleId = app.bundleIdentifier
+            {
+                ctx.updateRunningApp(bundleId: bundleId, app: app)
+            }
+        }
+
+        let didTerminate = center.addObserver(
+            forName: NSWorkspace.didTerminateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { notification in
+            if let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+               let bundleId = app.bundleIdentifier
+            {
+                // Check if another instance of the same app is still running
+                let remaining = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId)
+                if let next = remaining.first {
+                    ctx.updateRunningApp(bundleId: bundleId, app: next)
+                } else {
+                    ctx.removeRunningApp(bundleId: bundleId)
+                }
+            }
+        }
+
+        let didActivate = center.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { notification in
+            let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            ctx.updateFrontmost(app)
+        }
+
+        workspaceObservers = [didLaunch, didTerminate, didActivate]
+    }
+
     // MARK: - Pause when our app is active (Recorder needs events)
 
     private func observeAppActivation() {
-        let lookup = self.lookup
+        let ctx = self.context
 
         let didActivate = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification,
             object: nil,
             queue: .main
         ) { _ in
-            lookup.paused = true
+            ctx.paused = true
         }
 
         let didDeactivate = NotificationCenter.default.addObserver(
@@ -254,7 +366,7 @@ final class ShortcutManager {
             object: nil,
             queue: .main
         ) { _ in
-            lookup.paused = false
+            ctx.paused = false
         }
 
         activationObservers = [didActivate, didDeactivate]
@@ -263,7 +375,7 @@ final class ShortcutManager {
     // MARK: - CGEvent Tap lifecycle
 
     private func createTap() {
-        guard let result = _makeEventTap(lookup: lookup) else {
+        guard let result = _makeEventTap(context: context) else {
             usingCarbonFallback = true
             refreshCarbonRegistrations()
             return
@@ -271,6 +383,8 @@ final class ShortcutManager {
 
         self.eventTap = result.tap
         self.runLoopSource = result.source
+        // Set tap port on context so callback can re-enable on timeout
+        context.tapPort = result.tap
         result.thread.start()
         self.tapThread = result.thread
     }
@@ -291,7 +405,23 @@ final class ShortcutManager {
         let bundleURL = shortcut.bundleURL
 
         KeyboardShortcuts.onKeyUp(for: name) {
-            _toggleApp(bundleIdentifier: bundleIdentifier, bundleURL: bundleURL)
+            let workspace = NSWorkspace.shared
+            if let frontmost = workspace.frontmostApplication,
+               frontmost.bundleIdentifier == bundleIdentifier
+            {
+                frontmost.hide()
+            } else {
+                let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
+                if let app = running.first {
+                    app.activate()
+                } else {
+                    DispatchQueue.main.async {
+                        let config = NSWorkspace.OpenConfiguration()
+                        config.activates = true
+                        workspace.openApplication(at: bundleURL, configuration: config)
+                    }
+                }
+            }
         }
     }
 
