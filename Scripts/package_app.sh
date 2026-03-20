@@ -18,6 +18,7 @@ mkdir -p "${CONTENTS}/MacOS"
 mkdir -p "${CONTENTS}/Resources"
 
 cp "${BUILD_DIR}/${APP_NAME}" "${CONTENTS}/MacOS/${APP_NAME}"
+cp "Resources/AppIcon.icns" "${CONTENTS}/Resources/AppIcon.icns"
 
 cat > "${CONTENTS}/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -42,6 +43,8 @@ cat > "${CONTENTS}/Info.plist" << PLIST
     <string>14.0</string>
     <key>LSUIElement</key>
     <true/>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>NSHighResolutionCapable</key>
     <true/>
 </dict>
