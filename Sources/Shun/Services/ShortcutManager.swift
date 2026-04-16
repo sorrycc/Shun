@@ -97,6 +97,18 @@ private final class TapContext: @unchecked Sendable {
             if let frontmost = _frontmostApp,
                frontmost.bundleIdentifier == entry.bundleIdentifier
             {
+                // Stale cache: frontmost still points at an app whose
+                // windows are hidden but which macOS hasn't actually
+                // deactivated (some Electron apps swallow the focus
+                // transfer). Re-show instead of issuing a second hide.
+                if frontmost.isHidden {
+                    log.info("stale frontmost: \(entry.bundleIdentifier) is hidden, activating")
+                    _frontmostApp = nil
+                    return .activate(frontmost)
+                }
+                // Optimistically clear so the next press can't match a
+                // stale entry if macOS doesn't move frontmost post-hide.
+                _frontmostApp = nil
                 return .hide(frontmost)
             }
 
@@ -459,7 +471,8 @@ final class ShortcutManager {
         KeyboardShortcuts.onKeyUp(for: name) {
             let workspace = NSWorkspace.shared
             if let frontmost = workspace.frontmostApplication,
-               frontmost.bundleIdentifier == bundleIdentifier
+               frontmost.bundleIdentifier == bundleIdentifier,
+               !frontmost.isHidden
             {
                 frontmost.hide()
             } else {

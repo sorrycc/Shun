@@ -1,15 +1,17 @@
 #!/bin/bash
 set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 APP_NAME="Shun"
 BUNDLE_ID="com.shun.Shun"
-VERSION="1.0.0"
-SHORT_VERSION="1.0"
+VERSION="${VERSION:-1.0.0}"
+SHORT_VERSION="${VERSION}"
 BUILD_DIR=".build/release"
 APP_BUNDLE="${APP_NAME}.app"
 CONTENTS="${APP_BUNDLE}/Contents"
+SIGN_IDENTITY="Developer ID Application: chen cheng (KU8S35TEW8)"
 
-echo "Building ${APP_NAME} (release)..."
+echo "Building ${APP_NAME} ${VERSION} (release)..."
 swift build -c release
 
 echo "Creating app bundle..."
@@ -51,8 +53,14 @@ cat > "${CONTENTS}/Info.plist" << PLIST
 </plist>
 PLIST
 
-echo "Code signing (ad-hoc)..."
-codesign --force --sign - "${APP_BUNDLE}"
+echo "Code signing with Developer ID + hardened runtime..."
+codesign --force --options runtime --timestamp \
+         --sign "${SIGN_IDENTITY}" \
+         "${APP_BUNDLE}"
 
-echo "Done! ${APP_BUNDLE} is ready."
-echo "To install: cp -r ${APP_BUNDLE} /Applications/"
+echo "Verifying signature..."
+codesign --verify --strict "${APP_BUNDLE}"
+
+echo "Done! ${APP_BUNDLE} is signed (not yet notarized)."
+echo "  - To install locally: cp -r ${APP_BUNDLE} /Applications/"
+echo "  - To cut a release:   ./Scripts/release.sh"

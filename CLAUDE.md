@@ -9,7 +9,17 @@ macOS 14+ menu bar app for global hotkey-to-app switching (Thor clone). SPM-only
 ```bash
 swift build                      # debug build
 swift build -c release           # release build
-./Scripts/package_app.sh         # create .app bundle (release + codesign)
+./Scripts/package_app.sh         # create .app bundle (release + Developer ID codesign)
+VERSION=1.0.1 ./Scripts/release.sh  # notarize + DMG + zip + sha256 (see docs/designs/2026-04-16-signing-and-notarization.md)
+```
+
+### Release one-time setup
+Before first `release.sh` run, register your Apple credentials in keychain:
+```bash
+xcrun notarytool store-credentials shun-notary \
+    --apple-id <your-apple-id> \
+    --team-id KU8S35TEW8 \
+    --password <app-specific-password-from-appleid.apple.com>
 ```
 
 ## Architecture (key files)
