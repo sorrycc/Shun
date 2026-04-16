@@ -1,5 +1,21 @@
 import Foundation
 
+/// Returns the app support directory for Shun, migrating the legacy "HotApp"
+/// directory on first launch so existing users keep their shortcuts and usage history.
+private func shunSupportDirectory() -> URL {
+    let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+    let newDir = appSupport.appendingPathComponent("Shun", isDirectory: true)
+    let legacyDir = appSupport.appendingPathComponent("HotApp", isDirectory: true)
+
+    let fm = FileManager.default
+    if !fm.fileExists(atPath: newDir.path),
+       fm.fileExists(atPath: legacyDir.path) {
+        try? fm.moveItem(at: legacyDir, to: newDir)
+    }
+    try? fm.createDirectory(at: newDir, withIntermediateDirectories: true)
+    return newDir
+}
+
 protocol PersistenceService: Sendable {
     func load() throws -> [AppShortcut]
     func save(_ shortcuts: [AppShortcut]) throws
@@ -7,10 +23,7 @@ protocol PersistenceService: Sendable {
 
 struct JSONFilePersistence: PersistenceService {
     static let defaultFileURL: URL = {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = appSupport.appendingPathComponent("HotApp", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("shortcuts.json")
+        shunSupportDirectory().appendingPathComponent("shortcuts.json")
     }()
 
     private let fileURL: URL
@@ -37,10 +50,7 @@ struct JSONFilePersistence: PersistenceService {
 
 struct UsagePersistence: Sendable {
     static let defaultFileURL: URL = {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let dir = appSupport.appendingPathComponent("HotApp", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("usage.json")
+        shunSupportDirectory().appendingPathComponent("usage.json")
     }()
 
     private let fileURL: URL

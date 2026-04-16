@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-APP_NAME="HotApp"
-BUNDLE_ID="com.hotapp.HotApp"
+APP_NAME="Shun"
+BUNDLE_ID="com.shun.Shun"
 VERSION="1.0.0"
 SHORT_VERSION="1.0"
 BUILD_DIR=".build/release"

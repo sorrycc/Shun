@@ -87,7 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !trusted {
             let alert = NSAlert()
             alert.messageText = "Accessibility Permission Required"
-            alert.informativeText = "HotApp needs Accessibility access to register global hotkeys. Please grant access in System Settings → Privacy & Security → Accessibility, then relaunch."
+            alert.informativeText = "Shun needs Accessibility access to register global hotkeys. Please grant access in System Settings → Privacy & Security → Accessibility, then relaunch."
             alert.alertStyle = .warning
             alert.addButton(withTitle: "Open System Settings")
             alert.addButton(withTitle: "Later")

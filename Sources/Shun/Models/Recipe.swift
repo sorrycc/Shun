@@ -20,7 +20,7 @@ enum RecipeError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unsupportedVersion(let version):
-            return "This recipe requires a newer version of HotApp (recipe version \(version))."
+            return "This recipe requires a newer version of Shun (recipe version \(version))."
         }
     }
 }

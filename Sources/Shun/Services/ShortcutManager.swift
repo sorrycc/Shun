@@ -4,7 +4,7 @@ import Carbon.HIToolbox
 import KeyboardShortcuts
 import os
 
-private let log = Logger(subsystem: "com.hotapp", category: "ShortcutManager")
+private let log = Logger(subsystem: "com.shun", category: "ShortcutManager")
 
 // MARK: - Shortcut lookup types
 
@@ -247,7 +247,7 @@ private func _makeEventTap(
         CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
         CFRunLoopRun()
     }
-    thread.name = "HotApp.EventTap"
+    thread.name = "Shun.EventTap"
     thread.qualityOfService = .userInteractive
 
     return (tap, source, thread)

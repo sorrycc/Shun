@@ -1,4 +1,5 @@
 /.build
+/Shun.app
 /HotApp.app
 .DS_Store
 *.xcodeproj

@@ -2,7 +2,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "HotApp",
+    name: "Shun",
     platforms: [
         .macOS(.v14),
     ],
@@ -11,11 +11,11 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "HotApp",
+            name: "Shun",
             dependencies: [
                 "KeyboardShortcuts",
             ],
-            path: "Sources/HotApp",
+            path: "Sources/Shun",
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]

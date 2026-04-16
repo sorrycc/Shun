@@ -15,7 +15,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         if let button = statusItem.button {
             button.image = NSImage(
                 systemSymbolName: "bolt.fill",
-                accessibilityDescription: "HotApp"
+                accessibilityDescription: "Shun"
             )
         }
 
@@ -36,7 +36,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let version =
             Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
             ?? "1.0"
-        let titleItem = NSMenuItem(title: "HotApp v\(version)", action: nil, keyEquivalent: "")
+        let titleItem = NSMenuItem(title: "Shun v\(version)", action: nil, keyEquivalent: "")
         titleItem.isEnabled = false
         menu.addItem(titleItem)
 
@@ -62,7 +62,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
 
         let quitItem = NSMenuItem(
-            title: "Quit HotApp",
+            title: "Quit Shun",
             action: #selector(NSApplication.terminate(_:)),
             keyEquivalent: "q"
         )

@@ -1,12 +1,12 @@
 import SwiftUI
 
 @main
-struct HotAppApp: App {
+struct ShunApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
-        Window("HotApp Settings", id: "settings") {
+        Window("Shun Settings", id: "settings") {
             SettingsView()
                 .environment(appDelegate.store)
                 .environment(appDelegate.usageStore)
