@@ -10,16 +10,20 @@ macOS 14+ menu bar app for global hotkey-to-app switching (Thor clone). SPM-only
 swift build                      # debug build
 swift build -c release           # release build
 ./Scripts/package_app.sh         # create .app bundle (release + Developer ID codesign)
-./Scripts/release.sh             # notarize + DMG + zip + sha256 (version from ./VERSION)
+./Scripts/release.sh             # notarize + DMG + zip + sha256 (uses ./VERSION)
+bun release patch                # full release: bump VERSION + release.sh + git commit + tag
 ```
 
-Version is the single-line `VERSION` file at repo root. To cut a new release:
+Version lives in the single-line `VERSION` file at repo root. Preferred release flow:
 ```bash
-echo 1.0.1 > VERSION
-./Scripts/release.sh
-git commit -am "release: 1.0.1" && git tag v1.0.1 && git push --tags
+bun release patch --push   # 1.0.0 -> 1.0.1: bump, build, notarize, commit, tag, push
+bun release minor          # local only (push manually after verifying)
+bun release major --push
 ```
-For throwaway test builds you can still override: `VERSION=1.0.0-test ./Scripts/release.sh`.
+Preflight refuses dirty working tree or duplicate tags. Reverts `VERSION` on pipeline failure.
+
+Lower-level: `./Scripts/release.sh` alone rebuilds/re-notarizes without bumping or tagging.
+Override for throwaway test builds: `VERSION=1.0.0-test ./Scripts/release.sh`.
 See `docs/designs/2026-04-16-signing-and-notarization.md`.
 
 ### Release one-time setup
