@@ -4,7 +4,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 APP_NAME="Shun"
 BUNDLE_ID="com.shun.Shun"
-VERSION="${VERSION:-1.0.0}"
+VERSION="${VERSION:-$(cat VERSION)}"
 SHORT_VERSION="${VERSION}"
 BUILD_DIR=".build/release"
 APP_BUNDLE="${APP_NAME}.app"

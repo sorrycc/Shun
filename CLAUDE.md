@@ -10,8 +10,17 @@ macOS 14+ menu bar app for global hotkey-to-app switching (Thor clone). SPM-only
 swift build                      # debug build
 swift build -c release           # release build
 ./Scripts/package_app.sh         # create .app bundle (release + Developer ID codesign)
-VERSION=1.0.1 ./Scripts/release.sh  # notarize + DMG + zip + sha256 (see docs/designs/2026-04-16-signing-and-notarization.md)
+./Scripts/release.sh             # notarize + DMG + zip + sha256 (version from ./VERSION)
 ```
+
+Version is the single-line `VERSION` file at repo root. To cut a new release:
+```bash
+echo 1.0.1 > VERSION
+./Scripts/release.sh
+git commit -am "release: 1.0.1" && git tag v1.0.1 && git push --tags
+```
+For throwaway test builds you can still override: `VERSION=1.0.0-test ./Scripts/release.sh`.
+See `docs/designs/2026-04-16-signing-and-notarization.md`.
 
 ### Release one-time setup
 Before first `release.sh` run, register your Apple credentials in keychain:
