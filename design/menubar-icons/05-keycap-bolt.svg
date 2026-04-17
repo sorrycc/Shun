@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="18" height="18">
+  <!-- Keycap with a bolt inside — explicitly says "hotkey + speed". -->
+  <rect x="2" y="2" width="14" height="14" rx="3" ry="3"
+        fill="none" stroke="#000" stroke-width="1.4"/>
+  <path d="M10 4.8 L6.6 9.4 H8.8 L8 13.2 L11.6 8.4 H9.3 L10 4.8 Z" fill="#000"/>
+</svg>

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="18" height="18">
+  <!-- Diagonal light streak — "a flash, an instant". Minimal, distinctive. -->
+  <g fill="#000">
+    <!-- main streak -->
+    <path d="M3 13.5 L12.5 4 L15 4 L5.5 13.5 Z"/>
+    <!-- trailing dots for motion -->
+    <circle cx="2.2" cy="14.3" r="0.7"/>
+    <circle cx="0.9" cy="15.6" r="0.5"/>
+  </g>
+</svg>
