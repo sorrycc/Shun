@@ -1,6 +1,9 @@
 import KeyboardShortcuts
+import os
 import SwiftUI
 import UniformTypeIdentifiers
+
+private let log = Logger(subsystem: "com.shun", category: "ShortcutRow")
 
 struct ShortcutListView: View {
     @Environment(ShortcutStore.self) private var store
@@ -277,12 +280,10 @@ struct ShortcutRow: View {
     }
 
     private var recorder: some View {
-        KeyboardShortcuts.Recorder(for: shortcut.keyboardShortcutName)
-            .onChange(of: KeyboardShortcuts.getShortcut(for: shortcut.keyboardShortcutName)) {
-                _, newValue in
-                resolveConflicts(newShortcut: newValue)
-                NotificationCenter.default.post(name: .shortcutsDidChange, object: nil)
-            }
+        KeyboardShortcuts.Recorder(for: shortcut.keyboardShortcutName) { newValue in
+            resolveConflicts(newShortcut: newValue)
+            NotificationCenter.default.post(name: .shortcutsDidChange, object: nil)
+        }
     }
 
     private var enableToggle: some View {
@@ -306,6 +307,7 @@ struct ShortcutRow: View {
             if let otherCombo = KeyboardShortcuts.getShortcut(for: other.keyboardShortcutName),
                otherCombo == newShortcut
             {
+                log.info("reassigned \(newShortcut.description, privacy: .public) from \(other.displayName, privacy: .public) to \(shortcut.displayName, privacy: .public)")
                 KeyboardShortcuts.reset(other.keyboardShortcutName)
                 conflictNotice = "Reassigned from \(other.displayName)"
                 Task { @MainActor in
