@@ -1,7 +1,7 @@
 # R2 Upload & Sparkle Auto-Update
 
 **Date:** 2026-04-17
-**Status:** Design approved — not yet implemented
+**Status:** Implemented and shipped (1.0.3)
 **Related:** `docs/designs/2026-04-16-signing-and-notarization.md`
 **Revision history:**
 - rev 2 (2026-04-17) — enclosure points to ZIP not DMG; handle first-release 404; use Homebrew for Sparkle tools; CHANGELOG preflight; min-macOS from Info.plist; Sparkle error logging; explicit Content-Types.
@@ -9,6 +9,10 @@
 - rev 4 (2026-04-18) — `.env` at repo root (not `Scripts/.env` — Bun only auto-loads from cwd); bootstrap `CHANGELOG.md` if missing; validate `SPARKLE_PUBLIC_KEY` format at package time; use UTC dates in changelog promotion; pin Sparkle minor version; specify `--dry-run` semantics.
 - rev 5 (2026-04-18) — explicit `SUEnableSystemProfiling=NO` for privacy; add stable `Shun-latest.dmg` alias for website download button.
 - rev 6 (2026-04-18) — correction: Homebrew cask **doesn't** put `generate_keys`/`sign_update` on PATH (only formulas do); tools live at `/opt/homebrew/Caskroom/sparkle/<ver>/bin/`. Upload script now auto-discovers the binary; one-time setup uses the explicit Caskroom path.
+- rev 7 (2026-04-18) — **post-ship bug fixes from 1.0.2/1.0.3 releases:**
+  - **rpath fix**: `swift build` + hand-rolled `.app` bundle does **not** get `@executable_path/../Frameworks` in `LC_RPATH` (Xcode adds it automatically, SPM does not). Without it, dyld can't find embedded `Sparkle.framework` and the app crashes at launch with "Library not loaded". `package_app.sh` now runs `install_name_tool -add_rpath` on the binary before signing.
+  - **verify via public HEAD, not `Bun.s3.file().stat()`**: Bun's S3 client `stat().size` returns 0 against R2 regardless of the real size. Post-upload verification uses `fetch(url, {method: "HEAD"})` and reads `Content-Length`, which is correct and doubles as the bucket-public-access smoke test.
+  - **byte-count the appcast**: `String.length` counts UTF-16 code units; Bun uploads UTF-8 bytes. Multi-byte chars in release notes (em-dash, ellipsis, arrows) tripped false Content-Length mismatches. Use `new TextEncoder().encode(xml).length` before comparing.
 
 ## Goal
 
@@ -154,6 +158,15 @@ Errors stream to Console.app under subsystem `com.sorrycc.shun`, category `updat
 
 **Version invariant:** Sparkle compares updates using `CFBundleVersion` (not `CFBundleShortVersionString`). `package_app.sh` **must** set both to the same value (or if they diverge later via a build-number scheme, `sparkle:version` in the appcast must match `CFBundleVersion` exactly). If this invariant breaks, Sparkle ranks updates by the wrong number and either skips or loops on the same version. Documented here so future build-number refactors don't silently break updates.
 
+**Critical rpath patch in `package_app.sh`:** `swift build` produces a Mach-O without `@executable_path/../Frameworks` in `LC_RPATH`. Xcode adds this automatically; SPM + hand-rolled bundling does not. Without it, dyld cannot find the embedded `Sparkle.framework` at launch and the app crashes immediately with "Library not loaded". `package_app.sh` **must** patch the binary before codesigning:
+
+```bash
+install_name_tool -add_rpath "@executable_path/../Frameworks" \
+                  "${CONTENTS}/MacOS/${APP_NAME}"
+```
+
+This runs right after copying the binary, before any codesign step (modifying Mach-O headers invalidates signatures). **This caused 1.0.2 to crash on every launch**; 1.0.3 added the fix.
+
 **UI additions:**
 
 - `Views/SettingsView.swift` General tab:
@@ -253,9 +266,11 @@ const s3 = new Bun.S3Client({
    - `Shun-latest.dmg` → `application/x-apple-diskimage`, `Cache-Control: public, max-age=300` (alias, copied from the same bytes as `Shun-<v>.dmg`)
    - `appcast.xml` → `application/xml`, `Cache-Control: public, max-age=300`
    - DMG/zip/sha256 upload in parallel first; **then** `Shun-latest.dmg` + `appcast.xml` last (so neither alias ever references artifacts that aren't yet live).
-8. **Verify over S3 API.** HEAD each key, confirm Content-Length matches local.
-9. **Verify over public URL.** `fetch(HEAD)` the r2.dev URLs for appcast + zip. Catches the silent-misconfig case where public access was never enabled on the bucket (uploads succeed via S3 API but end users can't download). 2-request smoke test; runs once per release.
-10. **Print public URLs.**
+8. **Verify via public URL HEAD (single round trip).** `fetch(url, {method: "HEAD"})` for every uploaded key, compare against `Content-Length`. Two reasons to prefer this over `Bun.s3.file(key).stat()`:
+   - Bun's S3 client returns `size: 0` from `.stat()` against Cloudflare R2 (confirmed empirically; bug or feature of the current Bun.s3 API — don't trust it).
+   - Public-URL HEAD doubles as the bucket-public-access smoke test, catching the silent-misconfig case where R2 accepts writes but users can't download.
+   For the appcast, compute expected size as `new TextEncoder().encode(xml).length`, **not** `xml.length` — `String.length` counts UTF-16 code units, but Bun uploads UTF-8 bytes. Multi-byte characters in release notes (em-dash `—`, ellipsis `…`, arrows `→`) otherwise cause false Content-Length mismatches.
+9. **Print public URLs.**
 
 **CHANGELOG.md convention — Keep-a-Changelog with auto-promotion:**
 
