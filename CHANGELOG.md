@@ -7,6 +7,8 @@ Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+
+## 1.0.3 - 2026-04-18
 - Fix: app launches again. 1.0.2 crashed on startup because `Sparkle.framework` couldn't be located (missing `@executable_path/../Frameworks` rpath). If you're on 1.0.1, download 1.0.3 manually — 1.0.2 never worked.
 
 
