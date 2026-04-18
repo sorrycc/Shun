@@ -474,12 +474,15 @@ async function main(): Promise<void> {
   // Bun's s3.file().stat().size returns 0 for R2, so we verify over HTTPS instead —
   // this doubles as the public-access smoke test that catches silent bucket misconfig.
   log("Verifying public URLs + Content-Length...");
+  // Multi-byte UTF-8 chars (em-dash, ellipsis, arrows) make String.length disagree
+  // with byte length. Byte-count the XML the same way Bun uploads it.
+  const appcastBytes = new TextEncoder().encode(newAppcastXML).length;
   const toVerify: Array<{ url: string; expectedSize?: number }> = [
     ...plan.map((p) => ({
       url: p.publicURL,
       expectedSize: statSync(p.localPath).size,
     })),
-    { url: sparkle.feedURL, expectedSize: newAppcastXML.length },
+    { url: sparkle.feedURL, expectedSize: appcastBytes },
   ];
   for (const v of toVerify) {
     const res = await fetch(v.url, { method: "HEAD" });
