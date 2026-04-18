@@ -7,6 +7,8 @@ Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+
+## 1.0.2 - 2026-04-18
 - Auto-update: Shun now checks for new versions once a day and offers a one-click install. Powered by [Sparkle](https://sparkle-project.org/).
 - New "Check for Updates…" item in the menu bar and in Settings → General.
 - Privacy: update checks don't send any system profile data (`SUEnableSystemProfiling=NO`).
