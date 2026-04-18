@@ -46,6 +46,15 @@ mkdir -p "${FRAMEWORKS}"
 cp "${BUILD_DIR}/${APP_NAME}" "${CONTENTS}/MacOS/${APP_NAME}"
 cp "Resources/AppIcon.icns" "${CONTENTS}/Resources/AppIcon.icns"
 
+# swift build produces a binary without @executable_path/../Frameworks in LC_RPATH.
+# Xcode adds this automatically; SPM + hand-rolled bundling does not. Without it,
+# dyld looks for Sparkle.framework at Contents/MacOS/Sparkle.framework (wrong path)
+# and the app crashes at launch with "Library not loaded". Patch the Mach-O before
+# signing (modifying rpath invalidates any prior signature).
+echo "Patching rpath so dyld finds Contents/Frameworks/..."
+install_name_tool -add_rpath "@executable_path/../Frameworks" \
+                  "${CONTENTS}/MacOS/${APP_NAME}"
+
 # ---- Embed Sparkle.framework ----
 # Sparkle ships as an XCFramework via SPM binaryTarget. Find and copy the macOS slice.
 SPARKLE_XCFRAMEWORK=$(find .build/artifacts -type d -name "Sparkle.xcframework" | head -n 1)
