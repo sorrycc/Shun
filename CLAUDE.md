@@ -7,33 +7,61 @@ macOS 14+ menu bar app for global hotkey-to-app switching (Thor clone). SPM-only
 
 ## Build & Run
 ```bash
-swift build                      # debug build
-swift build -c release           # release build
-./Scripts/package_app.sh         # create .app bundle (release + Developer ID codesign)
-./Scripts/release.sh             # notarize + DMG + zip + sha256 (uses ./VERSION)
-bun release patch                # full release: bump VERSION + release.sh + git commit + tag
+swift build                                 # debug build (Sparkle skipped — no SUFeedURL)
+swift build -c release                      # release build
+./Scripts/package_app.sh                    # create .app bundle (release + Sparkle embed + codesign)
+./Scripts/release.sh                        # notarize + DMG + zip + sha256 (uses ./VERSION)
+bun release patch                           # full release: bump VERSION + CHANGELOG + release.sh + commit + tag
+bun release patch --push --upload           # ALSO publish to R2 (appcast + DMG + zip + latest alias)
 ```
 
-Version lives in the single-line `VERSION` file at repo root. Preferred release flow:
+Version lives in `VERSION` (single line). CHANGELOG.md uses Keep-a-Changelog — edit `## Unreleased` as you work; `bun release` auto-promotes it to `## <version> - <UTC date>`.
+
+Preferred release flow:
 ```bash
-bun release patch --push   # 1.0.0 -> 1.0.1: bump, build, notarize, commit, tag, push
-bun release minor          # local only (push manually after verifying)
-bun release major --push
+# 1. Edit CHANGELOG.md's "## Unreleased" section with release notes
+# 2. Run:
+bun release patch --push --upload   # bump, build, notarize, commit, tag, upload, push
 ```
-Preflight refuses dirty working tree or duplicate tags. Reverts `VERSION` on pipeline failure.
+Preflight refuses dirty working tree, duplicate tags, or an empty `## Unreleased` body (when --upload). On pipeline failure, reverts `VERSION` + `CHANGELOG.md`.
 
 Lower-level: `./Scripts/release.sh` alone rebuilds/re-notarizes without bumping or tagging.
 Override for throwaway test builds: `VERSION=1.0.0-test ./Scripts/release.sh`.
-See `docs/designs/2026-04-16-signing-and-notarization.md`.
+
+Design docs:
+- `docs/designs/2026-04-16-signing-and-notarization.md` — Developer ID + notary pipeline
+- `docs/designs/2026-04-17-r2-upload-and-auto-update.md` — Sparkle + R2 upload
 
 ### Release one-time setup
-Before first `release.sh` run, register your Apple credentials in keychain:
-```bash
-xcrun notarytool store-credentials shun-notary \
-    --apple-id <your-apple-id> \
-    --team-id KU8S35TEW8 \
-    --password <app-specific-password-from-appleid.apple.com>
-```
+1. **Notary credentials** in keychain:
+   ```bash
+   xcrun notarytool store-credentials shun-notary \
+       --apple-id <your-apple-id> \
+       --team-id KU8S35TEW8 \
+       --password <app-specific-password-from-appleid.apple.com>
+   ```
+2. **Sparkle tools** (for EdDSA signing):
+   ```bash
+   brew install --cask sparkle
+   # NOTE: the cask bundles the tools under /opt/homebrew/Caskroom/sparkle/<ver>/bin/
+   # but Homebrew does not symlink cask binaries to PATH. Run the full path:
+   "$(ls -d /opt/homebrew/Caskroom/sparkle/*/bin | sort | tail -1)/generate_keys"
+   ```
+   Private key → login keychain; public key printed to stdout. Paste the public key into `Scripts/sparkle.config` as `SPARKLE_PUBLIC_KEY`. **Back up the private key** (export from keychain → password manager); losing it means you can never ship another update.
+
+   `Scripts/upload_r2.ts` auto-locates `sign_update` at release time, so you don't need to put it on PATH.
+3. **R2 bucket** (Cloudflare dashboard):
+   - Create bucket `downloads` → Settings → enable `r2.dev` public access → copy URL.
+   - Paste URL into `Scripts/sparkle.config` as `SPARKLE_FEED_URL=<url>/shun/appcast.xml` and `SPARKLE_PUBLIC_BASE_URL=<url>`.
+   - Create API token (Object Read & Write, scoped to `downloads`) → copy Access Key ID + Secret.
+4. **R2 credentials** in `.env` at repo root (gitignored — Bun auto-loads `.env` from cwd, not `Scripts/`):
+   ```
+   R2_ACCOUNT_ID=...
+   R2_ACCESS_KEY_ID=...
+   R2_SECRET_ACCESS_KEY=...
+   R2_BUCKET=downloads
+   APP_KEY_PREFIX=shun
+   ```
 
 ## Architecture (key files)
 - `Sources/Shun/ShunApp.swift` — @main App, Window scene (NOT Settings scene — see caveat below)
@@ -57,6 +85,7 @@ xcrun notarytool store-credentials shun-notary \
 
 ## Dependencies
 - `KeyboardShortcuts` (sindresorhus, v1.15.0) — global hotkey registration + SwiftUI Recorder view
+- `Sparkle` (2.7.x, pinned to minor) — auto-update. `Sources/Shun/Services/UpdaterService.swift` wraps `SPUStandardUpdaterController`; instantiated only when `SUFeedURL` is in Info.plist (packaged builds, not `swift run`). Menu + Settings post `.checkForUpdates` notification → AppDelegate invokes the updater.
 
 ## Design Doc
 Full spec: `docs/designs/2026-03-18-hotapp.md` (uses the old name)

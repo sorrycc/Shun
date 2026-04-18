@@ -56,6 +56,14 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         settingsItem.target = self
         menu.addItem(settingsItem)
 
+        let checkUpdatesItem = NSMenuItem(
+            title: "Check for Updates…",
+            action: #selector(checkForUpdates),
+            keyEquivalent: ""
+        )
+        checkUpdatesItem.target = self
+        menu.addItem(checkUpdatesItem)
+
         menu.addItem(.separator())
 
         let quitItem = NSMenuItem(
@@ -73,6 +81,10 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     @objc private func openSettings() {
         onOpenSettings()
+    }
+
+    @objc private func checkForUpdates() {
+        NotificationCenter.default.post(name: .checkForUpdates, object: nil)
     }
 
     private static func loadMenuBarIcon() -> NSImage {
@@ -100,4 +112,5 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 extension Notification.Name {
     static let shortcutsDidChange = Notification.Name("shortcutsDidChange")
     static let openSettings = Notification.Name("openSettings")
+    static let checkForUpdates = Notification.Name("checkForUpdates")
 }

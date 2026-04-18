@@ -6,3 +6,7 @@
 *.xcodeproj
 .swiftpm/
 /tmp
+/.env
+/node_modules
+/.wrangler
+

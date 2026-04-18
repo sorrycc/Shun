@@ -7,9 +7,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let usageStore = UsageStore()
     lazy var shortcutManager = ShortcutManager(store: store, usageStore: usageStore)
     private var statusItemController: StatusItemController?
+    private var updater: UpdaterService?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         store.shortcutManager = shortcutManager
+
+        // Only start Sparkle when packaged — dev builds (swift run) have no SUFeedURL
+        // in Info.plist and Sparkle would assert on init.
+        if Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") != nil {
+            updater = UpdaterService()
+        }
 
         statusItemController = StatusItemController(store: store) { [weak self] in
             self?.openSettings()
@@ -19,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         shortcutManager.refreshRegistrations()
         observeWorkspaceNotifications()
         observeShortcutChanges()
+        observeUpdateChecks()
 
         if store.isFirstLaunch {
             Task { @MainActor in
@@ -107,6 +115,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] _ in
             Task { @MainActor in
                 self?.shortcutManager.refreshRegistrations()
+            }
+        }
+    }
+
+    private func observeUpdateChecks() {
+        NotificationCenter.default.addObserver(
+            forName: .checkForUpdates,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.updater?.checkForUpdates()
             }
         }
     }

@@ -34,6 +34,17 @@ struct SettingsView: View {
 struct GeneralSettingsView: View {
     @Environment(ShortcutStore.self) private var store
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    // Sparkle persists this key in UserDefaults; bind directly so the UI mirrors Sparkle's state.
+    @AppStorage("SUEnableAutomaticChecks") private var automaticallyCheckForUpdates = true
+
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            ?? "unknown"
+    }
+
+    private var updatesConfigured: Bool {
+        Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") != nil
+    }
 
     var body: some View {
         Form {
@@ -56,6 +67,31 @@ struct GeneralSettingsView: View {
                 .onChange(of: store.globalEnabled) { _, _ in
                     NotificationCenter.default.post(name: .shortcutsDidChange, object: nil)
                 }
+
+            if updatesConfigured {
+                Section {
+                    HStack {
+                        Text("Current version")
+                        Spacer()
+                        Text(appVersion).foregroundStyle(.secondary)
+                    }
+                    Toggle(
+                        "Automatically check for updates",
+                        isOn: $automaticallyCheckForUpdates
+                    )
+                    HStack {
+                        Spacer()
+                        Button("Check for Updates…") {
+                            NotificationCenter.default.post(
+                                name: .checkForUpdates,
+                                object: nil
+                            )
+                        }
+                    }
+                } header: {
+                    Text("Updates")
+                }
+            }
         }
         .formStyle(.grouped)
         .padding()
