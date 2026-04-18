@@ -2,6 +2,7 @@
   "name": "shun",
   "private": true,
   "scripts": {
+    "dev": "swift run",
     "release": "./Scripts/release.ts",
     "upload": "./Scripts/upload_r2.ts"
   },
