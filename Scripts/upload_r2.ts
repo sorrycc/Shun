@@ -470,26 +470,31 @@ async function main(): Promise<void> {
   } as any);
   log(`  uploaded ${appcastKey}  (${newAppcastXML.length} bytes)`);
 
-  // ---- Verify via S3 HEAD ----
-  log("Verifying uploads (S3 HEAD)...");
-  for (const p of plan) {
-    const stat = await s3.file(p.key).stat();
-    const localSize = statSync(p.localPath).size;
-    if (stat.size !== localSize) {
-      throw new Error(
-        `Size mismatch for ${p.key}: local=${localSize}, remote=${stat.size}`,
-      );
-    }
-  }
-
-  // ---- Public URL smoke test ----
-  log("Verifying public URLs...");
-  for (const url of [sparkle.feedURL, `${baseURL}/${appPrefix}/Shun-${version}.zip`]) {
-    const res = await fetch(url, { method: "HEAD" });
+  // ---- Verify via public URL HEAD (single round-trip, also tests bucket public access) ----
+  // Bun's s3.file().stat().size returns 0 for R2, so we verify over HTTPS instead —
+  // this doubles as the public-access smoke test that catches silent bucket misconfig.
+  log("Verifying public URLs + Content-Length...");
+  const toVerify: Array<{ url: string; expectedSize?: number }> = [
+    ...plan.map((p) => ({
+      url: p.publicURL,
+      expectedSize: statSync(p.localPath).size,
+    })),
+    { url: sparkle.feedURL, expectedSize: newAppcastXML.length },
+  ];
+  for (const v of toVerify) {
+    const res = await fetch(v.url, { method: "HEAD" });
     if (!res.ok) {
       throw new Error(
-        `Public HEAD ${url} failed with ${res.status}. Is the bucket's r2.dev public access enabled?`,
+        `Public HEAD ${v.url} failed with ${res.status}. Is r2.dev public access enabled on the bucket?`,
       );
+    }
+    if (v.expectedSize !== undefined) {
+      const got = Number(res.headers.get("content-length") ?? 0);
+      if (got !== v.expectedSize) {
+        throw new Error(
+          `Content-Length mismatch for ${v.url}: expected=${v.expectedSize}, got=${got}`,
+        );
+      }
     }
   }
 
