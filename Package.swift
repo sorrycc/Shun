@@ -18,9 +18,6 @@ let package = Package(
                 "Sparkle",
             ],
             path: "Sources/Shun",
-            resources: [
-                .process("Resources"),
-            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]

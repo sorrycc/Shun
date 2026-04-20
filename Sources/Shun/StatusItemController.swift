@@ -88,21 +88,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     }
 
     private static func loadMenuBarIcon() -> NSImage {
-        let pointSize = NSSize(width: 18, height: 18)
-        let image = NSImage(size: pointSize)
-        for suffix in ["", "@2x", "@3x"] {
-            guard
-                let url = Bundle.module.url(
-                    forResource: "MenuBarIcon\(suffix)",
-                    withExtension: "png"
-                ),
-                let data = try? Data(contentsOf: url),
-                let rep = NSBitmapImageRep(data: data)
-            else { continue }
-            // Pixel dims encode the scale; setting `size` to point size makes AppKit pick the right rep.
-            rep.size = pointSize
-            image.addRepresentation(rep)
-        }
+        let image = NSImage(named: "MenuBarIcon") ?? NSImage()
         image.isTemplate = true
         image.accessibilityDescription = "Shun"
         return image

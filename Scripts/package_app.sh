@@ -45,6 +45,12 @@ mkdir -p "${FRAMEWORKS}"
 
 cp "${BUILD_DIR}/${APP_NAME}" "${CONTENTS}/MacOS/${APP_NAME}"
 cp "Resources/AppIcon.icns" "${CONTENTS}/Resources/AppIcon.icns"
+# Menu bar icons: loaded via NSImage(named:) which auto-picks @2x/@3x from Contents/Resources/.
+# Explicit filenames (not a glob) so a missing file fails cp loudly with the exact name.
+cp "Resources/MenuBarIcon.png" \
+   "Resources/MenuBarIcon@2x.png" \
+   "Resources/MenuBarIcon@3x.png" \
+   "${CONTENTS}/Resources/"
 
 # swift build produces a binary without @executable_path/../Frameworks in LC_RPATH.
 # Xcode adds this automatically; SPM + hand-rolled bundling does not. Without it,
