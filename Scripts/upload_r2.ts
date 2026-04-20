@@ -127,7 +127,9 @@ function findSignUpdate(): string {
 }
 
 async function signUpdate(zipPath: string, signUpdateBin: string): Promise<EdSignature> {
-  const proc = Bun.spawn([signUpdateBin, zipPath], {
+  // --account ed25519-shun keeps Shun's private key in its own keychain slot so
+  // other Sparkle-signed apps (e.g. Sokki) can coexist under the same service.
+  const proc = Bun.spawn([signUpdateBin, "--account", "ed25519-shun", zipPath], {
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -136,7 +138,7 @@ async function signUpdate(zipPath: string, signUpdateBin: string): Promise<EdSig
   const stderr = await new Response(proc.stderr).text();
   if (exitCode !== 0) {
     throw new Error(
-      `sign_update failed (exit ${exitCode}). Is 'brew install --cask sparkle' run and a key generated?\n${stderr}`,
+      `sign_update failed (exit ${exitCode}). Did generate_keys run and the "ed25519-shun" keychain slot get populated?\n${stderr}${stdout}`,
     );
   }
   // Output format: sparkle:edSignature="xxx" length="12345"
