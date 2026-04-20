@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+
+
+## 1.0.4 - 2026-04-20
 - Fix: app launches again on clean machines. 1.0.3 still crashed at startup with `could not load resource bundle` because the SwiftPM-generated menu bar icon bundle was never copied into the `.app`. Menu bar icons now ship as loose PNGs in `Contents/Resources/`. If your current version crashes on launch, auto-update can't reach you — please download this version manually.
 
 
