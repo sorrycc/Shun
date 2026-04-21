@@ -5,6 +5,15 @@ macOS 14+ menu bar app for global hotkey-to-app switching (Thor clone). SPM-only
 
 > Formerly named **HotApp** — renamed to **Shun** (瞬, "instant"). Legacy design docs under `docs/` still use the old name.
 
+## Agent rules (read first)
+- **Do not run `bun release` / `Scripts/release.ts` / `Scripts/release.sh`.** Releases are human-driven. `.claude/settings.json` denies these.
+- **Do not edit `VERSION` or `Scripts/sparkle.config` or `.env`.** Denied by settings.
+- **Do not rewrite `CHANGELOG.md`'s released sections.** You may add bullets to `## Unreleased`.
+- **Do not rename legacy `HotApp` references in `docs/`.** They are historical.
+- **Do not add `resources:` to the Shun SPM target in `Package.swift`.** See the SPM caveat below — the app will crash on other machines.
+- **Do not change the `hotapp_` KeyboardShortcuts name prefix.** Requires a data migration.
+- To verify a packaged build, invoke the `verify-release` agent instead of running codesign/stapler commands ad-hoc.
+
 ## Build & Run
 ```bash
 swift build                                 # debug build (Sparkle skipped — no SUFeedURL)
@@ -72,7 +81,13 @@ Design docs:
 - `Sources/Shun/Services/ShortcutManager.swift` — registers global hotkeys via KeyboardShortcuts, toggle logic
 - `Sources/Shun/Services/AppScanner.swift` — scans /Applications for .app bundles, 60s cache
 - `Sources/Shun/Services/PersistenceService.swift` — protocol + JSONFilePersistence, one-time migration from legacy HotApp support dir
-- `Sources/Shun/Views/` — SwiftUI views: SettingsView (tabs), ShortcutListView, AppSearchView
+- `Sources/Shun/Services/UpdaterService.swift` — Sparkle `SPUStandardUpdaterController` wrapper
+- `Sources/Shun/Services/RecipeService.swift` — hotkey recipe presets
+- `Sources/Shun/Models/Recipe.swift`, `Models/UsageEvent.swift`, `Models/UsageStore.swift`
+- `Sources/Shun/Views/SettingsView.swift` — root tabs container
+- `Sources/Shun/Views/ShortcutListView.swift` — main shortcuts list + rows
+- `Sources/Shun/Views/AppSearchView.swift` — app picker sheet
+- `Sources/Shun/Views/InsightsView.swift` — usage insights tab
 
 ## Critical Conventions
 - **Swift 6 strict concurrency**: all UI types are `@MainActor`. `AppShortcut` is `Sendable`.
@@ -87,6 +102,18 @@ Design docs:
 ## Dependencies
 - `KeyboardShortcuts` (sindresorhus, v1.15.0) — global hotkey registration + SwiftUI Recorder view
 - `Sparkle` (2.7.x, pinned to minor) — auto-update. `Sources/Shun/Services/UpdaterService.swift` wraps `SPUStandardUpdaterController`; instantiated only when `SUFeedURL` is in Info.plist (packaged builds, not `swift run`). Menu + Settings post `.checkForUpdates` notification → AppDelegate invokes the updater.
+
+## Logs
+Subsystem `com.shun` (Sparkle/UpdaterService uses `com.shun.Shun`). Known categories:
+- `ShortcutManager` — registration + toggle logic
+- `ShortcutRow` — per-row UI events
+- `updater` — Sparkle (under subsystem `com.shun.Shun`)
+
+```bash
+log stream --predicate 'subsystem == "com.shun"' --level debug
+log stream --predicate 'subsystem == "com.shun" AND category == "ShortcutManager"' --level debug
+log show --predicate 'subsystem == "com.shun"' --last 1h --info --debug
+```
 
 ## Design Doc
 Full spec: `docs/designs/2026-03-18-hotapp.md` (uses the old name)

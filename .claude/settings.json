@@ -1,0 +1,45 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(swift build:*)",
+      "Bash(swift run:*)",
+      "Bash(swift test:*)",
+      "Bash(swift package:*)",
+      "Bash(./Scripts/package_app.sh:*)",
+      "Bash(./Scripts/release.sh:*)",
+      "Bash(bun run:*)",
+      "Bash(log show:*)",
+      "Bash(log stream:*)",
+      "Bash(xcrun notarytool log:*)",
+      "Bash(xcrun notarytool history:*)",
+      "Bash(xcrun notarytool info:*)",
+      "Bash(xcrun stapler validate:*)",
+      "Bash(codesign -dv:*)",
+      "Bash(codesign --verify:*)",
+      "Bash(codesign --display:*)",
+      "Bash(spctl -a:*)",
+      "Bash(plutil -p:*)",
+      "Bash(plutil -convert:*)",
+      "Bash(shasum:*)",
+      "Bash(defaults read:*)",
+      "Bash(mdls:*)"
+    ],
+    "deny": [
+      "Bash(bun release*)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git tag -d:*)",
+      "Bash(git push*--tags*)",
+      "Bash(defaults write:*)",
+      "Bash(defaults delete:*)",
+      "Bash(rm -rf ~*)",
+      "Bash(rm -rf /*)",
+      "Write(VERSION)",
+      "Edit(VERSION)",
+      "Write(Scripts/sparkle.config)",
+      "Edit(Scripts/sparkle.config)",
+      "Write(.env)",
+      "Edit(.env)"
+    ]
+  }
+}
