@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+- Auto-update feed moved to the custom domain `download.sorrycc.dev`, served by a new Cloudflare Worker (repo: `sorrycc/downloads-worker`). Already-installed builds continue to receive updates via the original `r2.dev` host, which stays enabled as a fallback.
 
 
 ## 1.0.6 - 2026-04-22

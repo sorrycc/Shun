@@ -27,7 +27,7 @@ Ship a complete publish pipeline for Shun releases:
 - Delta updates (binary diffs between versions). Full DMG is ~2.4 MB; not worth the complexity.
 - Multi-channel feeds (beta/stable). One channel for now.
 - Rollback command. If a release is bad, ship a new one.
-- Custom CDN domain. `*.r2.dev` is fine for current scale; migration path via Cloudflare Worker is documented but not built.
+- Delta updates, multi-channel feeds, rollback tooling — still out of scope. (Custom CDN domain is now live via `downloads-worker` — see "Custom domain" below.)
 
 ## Architecture overview
 
@@ -66,11 +66,11 @@ downloads/
     └── ...
 ```
 
-**Public URLs** (r2.dev dev subdomain):
-- Appcast: `https://pub-<hash>.r2.dev/shun/appcast.xml` → baked into Info.plist as `SUFeedURL`
-- Sparkle enclosure (what auto-update downloads): `https://pub-<hash>.r2.dev/shun/Shun-1.0.1.zip`
-- Versioned website download: `https://pub-<hash>.r2.dev/shun/Shun-1.0.1.dmg`
-- **Stable website "Download" button**: `https://pub-<hash>.r2.dev/shun/Shun-latest.dmg` → always points at the current release, no website edit per release
+**Public URLs** (custom domain, served by `~/Projects/downloads-worker` — see "Custom domain" below; `pub-<hash>.r2.dev` remains enabled as a fallback for legacy installs):
+- Appcast: `https://download.sorrycc.dev/shun/appcast.xml` → baked into Info.plist as `SUFeedURL`
+- Sparkle enclosure (what auto-update downloads): `https://download.sorrycc.dev/shun/Shun-1.0.1.zip`
+- Versioned website download: `https://download.sorrycc.dev/shun/Shun-1.0.1.dmg`
+- **Stable website "Download" button**: `https://download.sorrycc.dev/shun/Shun-latest.dmg` → always points at the current release, no website edit per release
 
 **ZIP vs DMG split:** Sparkle convention is to ship the ZIP as the in-app update artifact (smaller, no mount/unmount, fewer failure modes). The DMG stays as the website download for manual install (familiar drag-to-Applications UX for first-time users). Both get uploaded; only the ZIP is referenced in `<enclosure>`.
 
@@ -147,7 +147,7 @@ Errors stream to Console.app under subsystem `com.sorrycc.shun`, category `updat
 
 | Key | Value | Notes |
 |---|---|---|
-| `SUFeedURL` | `https://pub-<hash>.r2.dev/shun/appcast.xml` | from `sparkle.config` |
+| `SUFeedURL` | `https://download.sorrycc.dev/shun/appcast.xml` | from `sparkle.config` |
 | `SUPublicEDKey` | `<base64 public key>` | from `sparkle.config` |
 | `SUEnableAutomaticChecks` | `YES` | |
 | `SUScheduledCheckInterval` | `86400` | 1 day |
@@ -190,8 +190,8 @@ This runs right after copying the binary, before any codesign step (modifying Ma
 
 ```
 SPARKLE_PUBLIC_KEY=<base64 EdDSA public key>
-SPARKLE_FEED_URL=https://pub-<hash>.r2.dev/shun/appcast.xml
-SPARKLE_PUBLIC_BASE_URL=https://pub-<hash>.r2.dev
+SPARKLE_FEED_URL=https://download.sorrycc.dev/shun/appcast.xml
+SPARKLE_PUBLIC_BASE_URL=https://download.sorrycc.dev
 ```
 
 `package_app.sh` sources this file and substitutes into the generated Info.plist. Rotating the EdDSA key or migrating the feed URL becomes a one-line diff instead of an edit scattered across a shell script and a TS file.
@@ -338,29 +338,31 @@ bun release patch --upload          # upload without pushing.
 
 1. **Create R2 bucket**
    - Cloudflare dashboard → R2 → create bucket `downloads`
-   - Settings → Public access → enable `r2.dev` subdomain → copy URL
-2. **Create R2 API token**
+   - Settings → Public access → enable `r2.dev` subdomain (kept on for legacy-install fallback; not the primary public host)
+2. **Deploy downloads-worker** (`~/Projects/downloads-worker`)
+   - Cloudflare Worker with an R2 binding to `downloads` and a custom-domain route on `download.sorrycc.dev`. `bun run deploy` provisions DNS + cert.
+3. **Create R2 API token**
    - R2 → Manage API tokens → Object Read & Write, scoped to `downloads`
    - Put Access Key ID + Secret in `./.env` at repo root (not under `Scripts/`)
-3. **Install Sparkle tools**
+4. **Install Sparkle tools**
    - `brew install --cask sparkle` — provides `generate_keys` and `sign_update` on PATH
-4. **Generate Sparkle EdDSA key**
+5. **Generate Sparkle EdDSA key**
    - Run `generate_keys` (from the cask)
    - Paste the printed public key into `Scripts/sparkle.config` as `SPARKLE_PUBLIC_KEY=…`
    - **Back up the private key** (export from keychain → password manager)
-5. **Set feed URL** in `Scripts/sparkle.config` — `SPARKLE_FEED_URL` and `SPARKLE_PUBLIC_BASE_URL` to the actual r2.dev URL. Commit the file.
+6. **Set feed URL** in `Scripts/sparkle.config` — `SPARKLE_FEED_URL=https://download.sorrycc.dev/shun/appcast.xml` and `SPARKLE_PUBLIC_BASE_URL=https://download.sorrycc.dev`. Commit the file.
 
 ## Smoke test
 
 1. `VERSION=1.0.2-test ./Scripts/release.sh && ./Scripts/upload_r2.ts --version 1.0.2-test`
-2. `curl https://pub-<hash>.r2.dev/shun/appcast.xml` — confirm new `<item>`
+2. `curl https://download.sorrycc.dev/shun/appcast.xml` — confirm new `<item>`
 3. Install previous (1.0.1) build locally, launch → update prompt appears
 4. Accept → Sparkle downloads + verifies + relaunches
 5. Delete test keys from R2, revert VERSION
 
 ## Risks & caveats
 
-- **r2.dev rate limit** (~10 req/s per bucket). Fine for small user base. Migration path: Cloudflare Worker at `shun-updates.<subdomain>.workers.dev` that proxies to R2, giving a stable URL independent of r2.dev.
+- **r2.dev rate limit** (~10 req/s per bucket) — no longer on the critical path; traffic goes through `download.sorrycc.dev` (Worker + R2 binding) which removes that ceiling. r2.dev stays enabled so shipped 1.0.4/1.0.5 installs keep receiving updates.
 - **SUFeedURL is permanent.** Changing it post-release strands old users. Worker redirect layer is cheap insurance if we ever move DNS to Cloudflare.
 - **Public EdDSA key is permanent.** Losing the private key = no more updates for existing users.
 - **First post-integration release** (1.0.2) can't auto-update 1.0.1 users — they lack Sparkle. Manual download required; 1.0.2 → 1.0.3+ auto-updates normally.

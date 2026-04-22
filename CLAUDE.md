@@ -7,7 +7,7 @@ macOS 14+ menu bar app for global hotkey-to-app switching (Thor clone). SPM-only
 
 ## Agent rules (read first)
 - **Do not run `bun release` / `Scripts/release.ts` / `Scripts/release.sh`.** Releases are human-driven. `.claude/settings.json` denies these.
-- **Do not edit `VERSION` or `Scripts/sparkle.config` or `.env`.** Denied by settings.
+- **Do not edit `VERSION` or `.env`.** Denied by settings. `Scripts/sparkle.config` is editable but treat changes carefully — it's the source of truth for `SUFeedURL` baked into Info.plist; never rotate `SPARKLE_PUBLIC_KEY` without losing auto-update for installed users.
 - **Do not rewrite `CHANGELOG.md`'s released sections.** You may add bullets to `## Unreleased`.
 - **Do not rename legacy `HotApp` references in `docs/`.** They are historical.
 - **Do not add `resources:` to the Shun SPM target in `Package.swift`.** See the SPM caveat below — the app will crash on other machines.
@@ -60,8 +60,9 @@ Design docs:
 
    `Scripts/upload_r2.ts` auto-locates `sign_update` at release time, so you don't need to put it on PATH.
 3. **R2 bucket** (Cloudflare dashboard):
-   - Create bucket `downloads` → Settings → enable `r2.dev` public access → copy URL.
-   - Paste URL into `Scripts/sparkle.config` as `SPARKLE_FEED_URL=<url>/shun/appcast.xml` and `SPARKLE_PUBLIC_BASE_URL=<url>`.
+   - Create bucket `downloads` → Settings → enable `r2.dev` public access (kept on for legacy 1.0.4/1.0.5 installs whose `SUFeedURL` is baked to the r2.dev host).
+   - Public host is `https://download.sorrycc.dev`, served by the `downloads-worker` repo at `~/Projects/downloads-worker` (Cloudflare Worker, R2 binding, custom-domain route). Deploy with `bun run deploy` in that repo.
+   - `Scripts/sparkle.config` uses `SPARKLE_FEED_URL=https://download.sorrycc.dev/shun/appcast.xml` and `SPARKLE_PUBLIC_BASE_URL=https://download.sorrycc.dev`.
    - Create API token (Object Read & Write, scoped to `downloads`) → copy Access Key ID + Secret.
 4. **R2 credentials** in `.env` at repo root (gitignored — Bun auto-loads `.env` from cwd, not `Scripts/`):
    ```
