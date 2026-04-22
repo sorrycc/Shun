@@ -10,6 +10,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var updater: UpdaterService?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Redundant in packaged builds (LSUIElement=true already sets this),
+        // but required in `swift run` dev builds where no Info.plist exists.
+        NSApp.setActivationPolicy(.accessory)
+
         store.shortcutManager = shortcutManager
 
         // Only start Sparkle when packaged — dev builds (swift run) have no SUFeedURL
@@ -50,7 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func openSettings() {
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
         NotificationCenter.default.post(name: .openSettings, object: nil)
     }
 

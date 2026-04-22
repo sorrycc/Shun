@@ -34,6 +34,10 @@ private final class TapContext: @unchecked Sendable {
     private var _runningApps: [String: NSRunningApplication] = [:]
     private var _frontmostApp: NSRunningApplication?
 
+    // True while a blocklisted app (e.g. Screen Sharing) is frontmost; keystrokes
+    // pass through instead of being intercepted.
+    private var _blockedByFrontmost = false
+
     // Tap port for re-enabling on tapDisabledByTimeout
     private var _tapPort: CFMachPort?
 
@@ -68,7 +72,19 @@ private final class TapContext: @unchecked Sendable {
     }
 
     func updateFrontmost(_ app: NSRunningApplication?) {
-        lock.withLock { _frontmostApp = app }
+        // Snapshot transition inside the lock; log after releasing (the tap
+        // hot path contends on this same unfair lock on every keystroke).
+        let (didEngage, newBundleId): (Bool?, String?) = lock.withLock {
+            let wasBlocked = _blockedByFrontmost
+            _frontmostApp = app
+            let bundleId = app?.bundleIdentifier
+            _blockedByFrontmost = bundleId.map(blockedFrontmostBundleIDs.contains) ?? false
+            let transition: Bool? = (wasBlocked == _blockedByFrontmost) ? nil : _blockedByFrontmost
+            return (transition, bundleId)
+        }
+        if let engaged = didEngage {
+            log.info("frontmost blocklist \(engaged ? "engaged" : "released"): \(newBundleId ?? "nil", privacy: .public)")
+        }
     }
 
     // MARK: - Tap port
@@ -88,7 +104,7 @@ private final class TapContext: @unchecked Sendable {
 
     func matchAndResolve(keyCode: Int64, flags: CGEventFlags) -> ToggleAction? {
         lock.withLock {
-            guard !_paused else { return nil }
+            guard !_paused, !_blockedByFrontmost else { return nil }
             guard let entry = table[ShortcutKey(keyCode: keyCode, modifierMask: flags.rawValue)] else {
                 return nil
             }
@@ -122,6 +138,16 @@ private final class TapContext: @unchecked Sendable {
         }
     }
 }
+
+// MARK: - Frontmost-app blocklist
+
+/// Bundle IDs whose frontmost presence suppresses Shun's hotkey interception.
+/// Keystrokes pass through to the app instead of triggering our toggle — e.g.
+/// so Screen Sharing can forward the key to a remote Mac.
+/// Hardcoded today; likely becomes user-configurable later.
+private let blockedFrontmostBundleIDs: Set<String> = [
+    "com.apple.ScreenSharing",
+]
 
 // MARK: - Modifier flag helpers
 
@@ -470,6 +496,13 @@ final class ShortcutManager {
 
         KeyboardShortcuts.onKeyUp(for: name) {
             let workspace = NSWorkspace.shared
+            // Pass-through if a blocklisted app is frontmost (e.g., Screen
+            // Sharing should keep the keystroke even if bound to itself).
+            if let frontId = workspace.frontmostApplication?.bundleIdentifier,
+               blockedFrontmostBundleIDs.contains(frontId)
+            {
+                return
+            }
             if let frontmost = workspace.frontmostApplication,
                frontmost.bundleIdentifier == bundleIdentifier,
                !frontmost.isHidden

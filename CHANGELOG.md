@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+- Hotkeys now pass through when Screen Sharing is frontmost, so keystrokes reach the remote Mac instead of triggering Shun's local toggle. Blocklist is hardcoded for now; may become configurable later.
 
 
 ## 1.0.5 - 2026-04-22
