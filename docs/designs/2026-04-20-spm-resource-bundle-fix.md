@@ -139,3 +139,45 @@ Before tagging the release:
 ## Rollback
 
 Single-commit revert restores `resources: [.process("Resources")]`, the `Sources/Shun/Resources/` directory, `Bundle.module` usage, and removes the `cp` line from `package_app.sh`.
+
+## Follow-up — 2026-04-22: dependency resource bundles
+
+The original fix above was target-scoped: it removed `Bundle.module` from the *Shun* target. It did not address SwiftPM dependencies that ship their own resources, which hit the same `Bundle.module` accessor via the same mechanism.
+
+### What crashed
+
+1.0.4 crashed on the dev Mac the moment a `KeyboardShortcuts.Recorder` SwiftUI view was laid out:
+
+```
+_assertionFailure
+closure #1 in variable initialization of NSBundle.module    ← SPM-generated
+KeyboardShortcuts.RecorderCocoa.init(for:onChange:)
+```
+
+`KeyboardShortcuts` 1.15.0 declares resources (localized strings for the Recorder's accessibility labels), so SwiftPM emits `KeyboardShortcuts_KeyboardShortcuts.bundle` into `.build/release/` and generates a `Bundle.module` accessor inside the dependency. `Scripts/package_app.sh` only copied Sparkle + hand-picked loose files, so the `.app` shipped without that bundle — same failure mode as the original 1.0.3 / 1.0.4 menu-bar-icon crash, one layer deeper in the dependency graph.
+
+Why it reproduced on the *build* machine this time: `rm -rf .build` (or any SwiftPM rebuild that relocated artifacts) removed the hardcoded dev-machine fallback path that was silently keeping the shipped binary alive. Exactly the scenario the original "Why this wasn't caught in dev" section called out as the load-bearing test case.
+
+### Fix
+
+Generalize `Scripts/package_app.sh` to auto-embed every SPM-generated resource bundle from `.build/release/` into `Contents/Resources/`, with a self-exclusion so the Shun target's (non-existent) bundle can't sneak back in without a loud failure:
+
+```bash
+shopt -s nullglob
+for bundle in "${BUILD_DIR}"/*_*.bundle; do
+    name=$(basename "${bundle}")
+    [[ "${name}" == "${APP_NAME}_${APP_NAME}.bundle" ]] && continue
+    cp -R "${bundle}" "${CONTENTS}/Resources/"
+done
+shopt -u nullglob
+```
+
+The final `codesign "${APP_BUNDLE}"` at the end of the script seals these as ordinary resources — no separate signing step needed since they contain no Mach-O.
+
+### Guardrail
+
+CLAUDE.md gets a second bullet under Critical Conventions: "SPM dependency resource bundles must be embedded." The rule references this doc and spells out the glob-vs-explicit-list trade-off (glob preferred so new resource-bearing deps are auto-picked-up).
+
+### Validation note
+
+`Validation` in the original section is now insufficient on its own. A release smoke test must `rm -rf .build` (or use a fresh user account) before opening `/Applications/Shun.app` *and* exercise each SPM dependency's resource path — for `KeyboardShortcuts` that means opening Settings and scrolling to a `Recorder` row. Otherwise the `.build` fallback continues to mask the bug class indefinitely. Folding this into the `verify-release` agent is a worthwhile next step.

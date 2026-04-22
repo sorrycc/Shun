@@ -77,6 +77,24 @@ fi
 echo "Embedding Sparkle from ${SPARKLE_FRAMEWORK}..."
 cp -R "${SPARKLE_FRAMEWORK}" "${FRAMEWORKS}/"
 
+# ---- Embed SPM-generated dependency resource bundles ----
+# Third-party SPM targets that declare resources (e.g. KeyboardShortcuts's
+# localized strings) get an auto-generated Bundle.module accessor that probes
+# Bundle.main.resourceURL first, then falls back to a hardcoded .build path.
+# The Shun target has no resources: declaration (see docs/designs/2026-04-20-spm-resource-bundle-fix.md),
+# but dependencies can, and the fallback only exists on the build machine, so
+# any .app shipped without these bundles fatalErrors on first use (1.0.4 crash).
+shopt -s nullglob
+for bundle in "${BUILD_DIR}"/*_*.bundle; do
+    name=$(basename "${bundle}")
+    # Defensive: the Shun target intentionally produces no bundle; skip if one
+    # sneaks back in so we don't paper over a re-introduced resources: decl.
+    [[ "${name}" == "${APP_NAME}_${APP_NAME}.bundle" ]] && continue
+    echo "Embedding SPM resource bundle: ${name}"
+    cp -R "${bundle}" "${CONTENTS}/Resources/"
+done
+shopt -u nullglob
+
 cat > "${CONTENTS}/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
