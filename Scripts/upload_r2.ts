@@ -246,23 +246,39 @@ ${itemsXML}
 `;
 }
 
-function prependItemToAppcast(existing: string | null, newItemXML: string): string {
+function stripItemsForVersion(xml: string, version: string): string {
+  // Drop any existing <item>...</item> block whose enclosure sparkle:version matches,
+  // so reruns don't accumulate duplicates in the feed.
+  const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(
+    `\\s*<item>[\\s\\S]*?sparkle:version="${escaped}"[\\s\\S]*?</item>`,
+    "g",
+  );
+  return xml.replace(re, "");
+}
+
+function prependItemToAppcast(
+  existing: string | null,
+  newItemXML: string,
+  version: string,
+): string {
   if (!existing) {
     return wrapAppcastXML(newItemXML);
   }
+  const cleaned = stripItemsForVersion(existing, version);
   // Insert new <item> right after the first <channel> opening, before any existing <item>.
-  const channelOpen = existing.indexOf("<channel>");
+  const channelOpen = cleaned.indexOf("<channel>");
   if (channelOpen === -1) {
     // Existing file is malformed — rebuild.
     return wrapAppcastXML(newItemXML);
   }
-  const insertAt = existing.indexOf(">", channelOpen) + 1;
+  const insertAt = cleaned.indexOf(">", channelOpen) + 1;
   // Skip past any whitespace/intro tags (<title>, <link>, <description>, <language>)
   // to land just before the first <item>. If there's no <item>, insert before </channel>.
-  const firstItem = existing.indexOf("<item>", insertAt);
-  const channelClose = existing.indexOf("</channel>", insertAt);
+  const firstItem = cleaned.indexOf("<item>", insertAt);
+  const channelClose = cleaned.indexOf("</channel>", insertAt);
   const anchor = firstItem !== -1 && firstItem < channelClose ? firstItem : channelClose;
-  return existing.slice(0, anchor) + newItemXML + "\n" + existing.slice(anchor);
+  return cleaned.slice(0, anchor) + newItemXML + "\n" + cleaned.slice(anchor);
 }
 
 function log(msg: string): void {
@@ -350,7 +366,7 @@ async function main(): Promise<void> {
     zipLength: sig.length,
     edSignature: sig.edSignature,
   });
-  const newAppcastXML = prependItemToAppcast(existingAppcast, newItem);
+  const newAppcastXML = prependItemToAppcast(existingAppcast, newItem, version);
 
   // ---- Build upload plan ----
   const baseURL = sparkle.publicBaseURL.replace(/\/$/, "");
@@ -419,15 +435,16 @@ async function main(): Promise<void> {
     }
     if (!remote) continue;
     const localSize = statSync(p.localPath).size;
-    if (remote.size === localSize) {
-      // Try ETag match (simple upload => ETag == md5 in hex). Skip idempotently.
-      const md5 = fileMD5(p.localPath);
-      const remoteEtag = (remote.etag ?? "").replace(/"/g, "");
-      if (remoteEtag === md5 || remoteEtag === "") {
-        log(`  skip ${p.key} — already uploaded with matching bytes`);
-        (p as any).skip = true;
-        continue;
-      }
+    const md5 = fileMD5(p.localPath);
+    // R2 sometimes returns weak etags (W/"...") and size=0 for small text objects,
+    // so trust etag as the primary signal and strip the W/ prefix before comparing.
+    const remoteEtag = (remote.etag ?? "").replace(/^W\//, "").replace(/"/g, "");
+    const etagMatches = remoteEtag !== "" && remoteEtag === md5;
+    const sizeMatches = remote.size > 0 && remote.size === localSize;
+    if (etagMatches || (sizeMatches && remoteEtag === "")) {
+      log(`  skip ${p.key} — already uploaded with matching bytes`);
+      (p as any).skip = true;
+      continue;
     }
     if (!args.force) {
       throw new Error(
@@ -486,20 +503,34 @@ async function main(): Promise<void> {
     })),
     { url: sparkle.feedURL, expectedSize: appcastBytes },
   ];
+  // R2+CF edge occasionally serves a just-uploaded object with missing/0
+  // Content-Length for a second or two. Retry a few times before giving up.
+  const attempts = [0, 1000, 2000, 4000, 8000];
   for (const v of toVerify) {
-    const res = await fetch(v.url, { method: "HEAD" });
-    if (!res.ok) {
-      throw new Error(
-        `Public HEAD ${v.url} failed with ${res.status}. Is r2.dev public access enabled on the bucket?`,
-      );
-    }
-    if (v.expectedSize !== undefined) {
-      const got = Number(res.headers.get("content-length") ?? 0);
-      if (got !== v.expectedSize) {
-        throw new Error(
-          `Content-Length mismatch for ${v.url}: expected=${v.expectedSize}, got=${got}`,
-        );
+    let lastErr = "";
+    let ok = false;
+    for (let i = 0; i < attempts.length; i++) {
+      if (attempts[i] > 0) await Bun.sleep(attempts[i]);
+      // Ask for identity encoding — CF auto-compresses small text (sha256, appcast)
+      // and drops Content-Length when it does, which would fail the size check.
+      const res = await fetch(v.url, {
+        method: "HEAD",
+        cache: "no-store",
+        headers: { "Accept-Encoding": "identity" },
+      });
+      if (!res.ok) {
+        lastErr = `status=${res.status}`;
+        continue;
       }
+      if (v.expectedSize === undefined) { ok = true; break; }
+      const got = Number(res.headers.get("content-length") ?? 0);
+      if (got === v.expectedSize) { ok = true; break; }
+      lastErr = `expected=${v.expectedSize}, got=${got}`;
+    }
+    if (!ok) {
+      throw new Error(
+        `Public HEAD ${v.url} failed after ${attempts.length} attempts (${lastErr}). Is r2.dev public access enabled on the bucket?`,
+      );
     }
   }
 
