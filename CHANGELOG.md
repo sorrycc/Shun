@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+- New **Privacy** tab in Settings. Opt-out anonymous crash-report upload and daily DAU ping (both default ON) to a self-hosted worker at `telemetry.sorrycc.dev`. No personal data or keystroke contents are sent.
 
 
 ## 1.0.7 - 2026-04-22

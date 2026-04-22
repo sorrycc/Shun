@@ -1,0 +1,11 @@
+# Copy this file to Scripts/telemetry.config (gitignored) and fill in values.
+# If Scripts/telemetry.config does not exist, the packaged app is built
+# WITHOUT telemetry — CrashReporter and TelemetryService become no-ops.
+#
+# TELEMETRY_ENDPOINT_URL — base URL served by ~/Projects/telemetry-worker.
+# TELEMETRY_INGEST_KEY   — shared HMAC key (match wrangler secret INGEST_KEY
+#                          in telemetry-worker). Not truly secret — it ships
+#                          in the .app to deter drive-by spam.
+
+TELEMETRY_ENDPOINT_URL="https://telemetry.sorrycc.dev"
+TELEMETRY_INGEST_KEY="replace-me-with-ingest-key"

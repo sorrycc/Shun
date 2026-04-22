@@ -8,6 +8,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     lazy var shortcutManager = ShortcutManager(store: store, usageStore: usageStore)
     private var statusItemController: StatusItemController?
     private var updater: UpdaterService?
+    private var crashReporter: CrashReporter?
+    private var telemetry: TelemetryService?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Redundant in packaged builds (LSUIElement=true already sets this),
@@ -36,6 +38,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(500))
                 openSettings()
+            }
+        }
+
+        // Telemetry + crash upload are opt-out; gated on Info.plist like Sparkle.
+        if let config = TelemetryConfig.fromBundle() {
+            let crashReporter = CrashReporter(config: config)
+            let telemetry = TelemetryService(config: config)
+            self.crashReporter = crashReporter
+            self.telemetry = telemetry
+            Task {
+                await crashReporter.start()
+                await telemetry.start()
             }
         }
     }

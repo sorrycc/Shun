@@ -6,6 +6,7 @@ struct SettingsView: View {
         case shortcuts = "Shortcuts"
         case general = "General"
         case insights = "Insights"
+        case privacy = "Privacy"
     }
 
     @State private var selectedTab: Tab = .shortcuts
@@ -23,6 +24,10 @@ struct SettingsView: View {
             InsightsView()
                 .tabItem { Label("Insights", systemImage: "chart.bar") }
                 .tag(Tab.insights)
+
+            PrivacySettingsView()
+                .tabItem { Label("Privacy", systemImage: "hand.raised") }
+                .tag(Tab.privacy)
         }
         .frame(minWidth: 520, minHeight: 400)
         .onDisappear {

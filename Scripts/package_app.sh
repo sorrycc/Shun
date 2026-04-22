@@ -27,6 +27,27 @@ if [[ -z "${SPARKLE_PUBLIC_KEY:-}" || -z "${SPARKLE_FEED_URL:-}" ]]; then
     exit 1
 fi
 
+# ---- Telemetry config (optional): endpoint URL + HMAC key ----
+# If Scripts/telemetry.config exists, its values get baked into Info.plist so
+# CrashReporter / TelemetryService can activate. Absent config → services stay
+# silent (matches the SUFeedURL gate pattern).
+TELEMETRY_CONFIG="Scripts/telemetry.config"
+if [[ -f "${TELEMETRY_CONFIG}" ]]; then
+    # shellcheck disable=SC1090
+    source "${TELEMETRY_CONFIG}"
+fi
+
+if [[ -n "${TELEMETRY_ENDPOINT_URL:-}" && -n "${TELEMETRY_INGEST_KEY:-}" ]]; then
+    TELEMETRY_PLIST_KEYS="    <key>TelemetryEndpointURL</key>
+    <string>${TELEMETRY_ENDPOINT_URL}</string>
+    <key>TelemetryIngestKey</key>
+    <string>${TELEMETRY_INGEST_KEY}</string>"
+    echo "Telemetry endpoint: ${TELEMETRY_ENDPOINT_URL}"
+else
+    TELEMETRY_PLIST_KEYS=""
+    echo "Telemetry: disabled (no Scripts/telemetry.config or env vars)"
+fi
+
 # Validate Ed25519 public key shape: 32 bytes -> 44 chars base64 ending with '='.
 if ! [[ "${SPARKLE_PUBLIC_KEY}" =~ ^[A-Za-z0-9+/]{43}=$ ]]; then
     echo "FAIL: SPARKLE_PUBLIC_KEY in ${SPARKLE_CONFIG} doesn't look like a valid Ed25519 base64 key." >&2
@@ -163,6 +184,7 @@ cat > "${CONTENTS}/Info.plist" << PLIST
     <true/>
     <key>SUEnableSystemProfiling</key>
     <false/>
+${TELEMETRY_PLIST_KEYS}
 </dict>
 </plist>
 PLIST
