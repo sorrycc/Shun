@@ -34,8 +34,49 @@ if ! [[ "${SPARKLE_PUBLIC_KEY}" =~ ^[A-Za-z0-9+/]{43}=$ ]]; then
     exit 1
 fi
 
-echo "Building ${APP_NAME} ${VERSION} (release)..."
+# ---- Patch KeyboardShortcuts' generated resource bundle accessor (GH #1) ----
+# SwiftPM's generated accessor for the KeyboardShortcuts dep looks up the bundle at
+#   Bundle.main.bundleURL.appendingPathComponent("KeyboardShortcuts_KeyboardShortcuts.bundle")
+# For a packaged .app that's the .app root — placing files there breaks codesign
+# ("unsealed contents present in the bundle root"). We redirect the lookup to
+# Bundle.main.resourceURL (= Contents/Resources/) and embed the bundle there.
+#
+# Three-pass build: pass 1 fresh-builds so the accessor file exists; pass 2 is a
+# no-op that puts SPM's build DB into a state where DerivedSources are considered
+# up-to-date; we then patch + chmod 444 so pass 3 skips regeneration and compiles
+# our patched version. A single-pass "patch after pass 1 → pass 2 with chmod 444"
+# fails with "invalid access" because SPM still tries to re-emit the file from
+# its template on the second build after a fresh one.
+ACCESSOR=".build/arm64-apple-macosx/release/KeyboardShortcuts.build/DerivedSources/resource_bundle_accessor.swift"
+
+echo "Building ${APP_NAME} ${VERSION} (release, pass 1/3)..."
 swift build -c release
+
+echo "Building ${APP_NAME} ${VERSION} (release, pass 2/3 — settle SPM incremental state)..."
+swift build -c release
+
+if [[ ! -f "${ACCESSOR}" ]]; then
+    echo "FAIL: ${ACCESSOR} not found after pass 2." >&2
+    exit 1
+fi
+
+# Idempotent: grep skips the patch if we've already applied it and chmod 644
+# hasn't been restored by a dev-run of `swift build`.
+if ! grep -q "Bundle\.main\.resourceURL" "${ACCESSOR}"; then
+    echo "Patching KeyboardShortcuts resource_bundle_accessor.swift..."
+    chmod 644 "${ACCESSOR}"
+    sed -i.bak 's|Bundle\.main\.bundleURL\.appendingPathComponent("KeyboardShortcuts_KeyboardShortcuts\.bundle")\.path|(Bundle.main.resourceURL ?? Bundle.main.bundleURL).appendingPathComponent("KeyboardShortcuts_KeyboardShortcuts.bundle").path|' "${ACCESSOR}"
+    rm "${ACCESSOR}.bak"
+fi
+chmod 444 "${ACCESSOR}"
+
+echo "Building ${APP_NAME} ${VERSION} (release, pass 3/3 — with patched accessor)..."
+swift build -c release
+
+# Restore writable so future `swift build` invocations (dev workflow, `swift run`)
+# can regenerate the accessor from SPM's template without "invalid access" errors.
+# The next package_app.sh run re-patches if needed.
+chmod 644 "${ACCESSOR}"
 
 echo "Creating app bundle..."
 rm -rf "${APP_BUNDLE}"
@@ -51,6 +92,12 @@ cp "Resources/MenuBarIcon.png" \
    "Resources/MenuBarIcon@2x.png" \
    "Resources/MenuBarIcon@3x.png" \
    "${CONTENTS}/Resources/"
+
+# KeyboardShortcuts resource bundle: must sit where the patched accessor looks,
+# i.e., Bundle.main.resourceURL (= Contents/Resources/). Without this copy, the
+# Shortcut Recorder crashes on user machines. See GH #1.
+cp -R "${BUILD_DIR}/KeyboardShortcuts_KeyboardShortcuts.bundle" \
+      "${CONTENTS}/Resources/"
 
 # swift build produces a binary without @executable_path/../Frameworks in LC_RPATH.
 # Xcode adds this automatically; SPM + hand-rolled bundling does not. Without it,
@@ -149,6 +196,12 @@ echo "Code signing Sparkle.framework..."
 codesign --force --options runtime --timestamp \
          --sign "${SIGN_IDENTITY}" \
          "${EMBEDDED_SPARKLE}"
+
+# Resource-only bundle (no Mach-O) — no --options runtime.
+echo "Code signing KeyboardShortcuts resource bundle..."
+codesign --force --timestamp \
+         --sign "${SIGN_IDENTITY}" \
+         "${CONTENTS}/Resources/KeyboardShortcuts_KeyboardShortcuts.bundle"
 
 echo "Code signing main app with Developer ID + hardened runtime..."
 codesign --force --options runtime --timestamp \

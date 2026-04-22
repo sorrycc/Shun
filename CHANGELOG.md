@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+- Fix: Shortcut Recorder no longer crashes when configuring a shortcut. The `KeyboardShortcuts` resource bundle is now embedded in `Contents/Resources/` of the packaged `.app`, and SwiftPM's generated accessor is patched at build time to look there (GH #1).
 
 
 ## 1.0.4 - 2026-04-20
