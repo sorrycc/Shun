@@ -9,7 +9,7 @@ description: Wrap up a finished dev task — add one CHANGELOG bullet under Unre
 
 ## Agent prompt (pass verbatim)
 
-> Finish a dev task in `/Users/chencheng/Projects/Sokki`. Report back in under 80 words.
+> Finish a dev task in this project. Report back in under 80 words.
 >
 > 1. Inspect: `git status`, `git diff`, `git diff --staged`, `git log @{u}..HEAD` (if upstream set). If working tree is clean and nothing is ahead, stop and report "nothing to do".
 > 2. If the diff touches `VERSION`, STOP — tell the user to run `bun release` instead.
