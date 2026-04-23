@@ -1,5 +1,22 @@
 # Contributing
 
+## Setting up a fresh clone
+
+Shun needs two gitignored local files to build + release:
+
+- `.env` — R2 credentials for `bun release --upload`
+- `Scripts/telemetry.config` — telemetry endpoint + HMAC key (without it, the packaged app ships with no-op telemetry)
+
+If you already have a working Shun clone on this machine, copy them over:
+
+```bash
+Scripts/sync_local_secrets.sh /path/to/existing/shun
+```
+
+Otherwise, fill them in by hand from `.env.example` and `Scripts/telemetry.config.example`.
+
+The one-time notary profile (below) is stored in Keychain and shared across clones — no per-clone work needed.
+
 ## Releasing
 
 Version lives in the single-line `VERSION` file at repo root. The preferred release flow is `Scripts/release.ts`, which bumps the version, builds, notarizes with Apple, commits, tags, and (optionally) pushes.
