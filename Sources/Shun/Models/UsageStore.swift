@@ -7,13 +7,24 @@ final class UsageStore {
     private let persistence: UsagePersistence
     private var saveTask: Task<Void, Never>?
 
+    /// Collapse autorepeat bursts: keyboard repeats fire at ~10-15 Hz and the
+    /// tap's autorepeat filter is unreliable for some hotkey combos, so the
+    /// same bundle hit within this window is treated as one activation.
+    private static let dedupWindow: TimeInterval = 0.5
+
     init(persistence: UsagePersistence = UsagePersistence()) {
         self.persistence = persistence
         load()
     }
 
     func log(bundleIdentifier: String) {
-        events.append(UsageEvent(bundleIdentifier: bundleIdentifier, timestamp: Date()))
+        let now = Date()
+        if let last = events.last,
+           last.bundleIdentifier == bundleIdentifier,
+           now.timeIntervalSince(last.timestamp) < Self.dedupWindow {
+            return
+        }
+        events.append(UsageEvent(bundleIdentifier: bundleIdentifier, timestamp: now))
         save()
     }
 
@@ -24,6 +35,7 @@ final class UsageStore {
             events = []
         }
         pruneOldEvents()
+        dedupAutorepeatBursts()
     }
 
     func count(for bundleId: String) -> Int {
@@ -77,5 +89,23 @@ final class UsageStore {
     private func pruneOldEvents() {
         let cutoff = Date().addingTimeInterval(-7 * 24 * 60 * 60)
         events.removeAll { $0.timestamp < cutoff }
+    }
+
+    /// One-shot pass over the loaded array to remove same-bundle autorepeat
+    /// bursts that pre-date the log()-time dedup. Events are chronologically
+    /// ordered (only log() appends), so comparing against the last kept
+    /// event is sufficient.
+    private func dedupAutorepeatBursts() {
+        var result: [UsageEvent] = []
+        result.reserveCapacity(events.count)
+        for event in events {
+            if let last = result.last,
+               last.bundleIdentifier == event.bundleIdentifier,
+               event.timestamp.timeIntervalSince(last.timestamp) < Self.dedupWindow {
+                continue
+            }
+            result.append(event)
+        }
+        events = result
     }
 }

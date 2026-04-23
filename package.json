@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "dev": "swift run",
+    "build": "./Scripts/package_app.sh",
     "release": "./Scripts/release.ts",
     "upload": "./Scripts/upload_r2.ts"
   },
