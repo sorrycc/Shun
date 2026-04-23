@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+
+
+## 1.0.9 - 2026-04-23
 - Fix: **Insights** no longer over-counts hotkey activations. Holding a shortcut now registers as a single event instead of one per keyboard repeat, and existing inflated history is collapsed on next launch.
 
 
