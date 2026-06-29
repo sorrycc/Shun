@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         observeWorkspaceNotifications()
         observeShortcutChanges()
         observeUpdateChecks()
+        observeWindowClose()
 
         if store.isFirstLaunch {
             Task { @MainActor in
@@ -68,7 +69,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func openSettings() {
-        NSApp.activate()
+        // Activation + window fronting is handled by the app-level `.openSettings`
+        // observer in ShunApp.init (which flips to `.regular` first — required on
+        // Tahoe). All entry points (menu, first-launch, reopen) funnel through here.
         NotificationCenter.default.post(name: .openSettings, object: nil)
     }
 
@@ -144,8 +147,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
+                // Tahoe: flip to `.regular` so the Sparkle dialog can become
+                // frontmost. observeWindowClose() reverts to `.accessory` once it
+                // closes.
+                NSApp.setActivationPolicy(.regular)
                 NSApp.activate()
                 self?.updater?.checkForUpdates()
+            }
+        }
+    }
+
+    /// Reverts the activation policy to `.accessory` once no user-facing window
+    /// remains. Registered once (here, on launch), so repeated Settings open/close
+    /// never accumulates observers. Keyed on end state — not the closing window's
+    /// identity — so incidental closes (menus, or the Settings window closing while
+    /// a Sparkle window is still up) don't drop the Dock icon out from under a
+    /// visible window. `canBecomeMain` admits the Settings + Sparkle windows but
+    /// excludes the status-bar window.
+    private func observeWindowClose() {
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            // Defer one main-actor turn: willClose fires before the window leaves
+            // the screen, so the predicate must run after it has settled.
+            Task { @MainActor in
+                let hasUserFacingWindow = NSApp.windows.contains {
+                    $0.isVisible && $0.canBecomeMain
+                }
+                if !hasUserFacingWindow {
+                    NSApp.setActivationPolicy(.accessory)
+                }
             }
         }
     }
