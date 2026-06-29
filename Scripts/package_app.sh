@@ -114,12 +114,6 @@ cp "Resources/MenuBarIcon.png" \
    "Resources/MenuBarIcon@3x.png" \
    "${CONTENTS}/Resources/"
 
-# KeyboardShortcuts resource bundle: must sit where the patched accessor looks,
-# i.e., Bundle.main.resourceURL (= Contents/Resources/). Without this copy, the
-# Shortcut Recorder crashes on user machines. See GH #1.
-cp -R "${BUILD_DIR}/KeyboardShortcuts_KeyboardShortcuts.bundle" \
-      "${CONTENTS}/Resources/"
-
 # swift build produces a binary without @executable_path/../Frameworks in LC_RPATH.
 # Xcode adds this automatically; SPM + hand-rolled bundling does not. Without it,
 # dyld looks for Sparkle.framework at Contents/MacOS/Sparkle.framework (wrong path)
@@ -144,6 +138,19 @@ if [[ -z "${SPARKLE_FRAMEWORK}" ]]; then
 fi
 echo "Embedding Sparkle from ${SPARKLE_FRAMEWORK}..."
 cp -R "${SPARKLE_FRAMEWORK}" "${FRAMEWORKS}/"
+
+# ---- Auto-copy SwiftPM resource bundles ----
+# Any SwiftPM target declaring `resources:` emits <Pkg>_<Target>.bundle next to
+# the release binary. At runtime Bundle.module (via the patched accessor
+# above) looks for it at Contents/Resources/. Shipping without = Bundle.module
+# fatalError on first use — the 1.0.4 ship crash. Auto-copy means any new
+# package with resources Just Works with no future package_app.sh edits.
+BIN_PATH=$(swift build --show-bin-path -c release)
+while IFS= read -r -d '' bundle_path; do
+    bundle_name=$(basename "${bundle_path}")
+    echo "[COPY] ${bundle_name}"
+    cp -R "${bundle_path}" "${CONTENTS}/Resources/"
+done < <(find "${BIN_PATH}" -maxdepth 1 -type d -name '*.bundle' -print0 2>/dev/null)
 
 cat > "${CONTENTS}/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -189,6 +196,26 @@ ${TELEMETRY_PLIST_KEYS}
 </plist>
 PLIST
 
+# ---- Sign any auto-copied SwiftPM resource bundles ----
+# Nested bundles must be signed before the outer `codesign --force` seals them,
+# otherwise notarization rejects any Mach-O helpers inside. `--options runtime`
+# only applies to bundles with Mach-O content; fall back without it for
+# resource-only bundles (most SwiftPM resource bundles — KeyboardShortcuts'
+# bundle is asset-only, for example).
+while IFS= read -r -d '' spm_bundle; do
+    bundle_name=$(basename "${spm_bundle}")
+    echo "Code signing ${bundle_name}..."
+    codesign --force --options runtime --timestamp \
+             --sign "${SIGN_IDENTITY}" \
+             "${spm_bundle}" 2>/dev/null || \
+        codesign --force --timestamp \
+                 --sign "${SIGN_IDENTITY}" \
+                 "${spm_bundle}"
+done < <(find "${CONTENTS}/Resources" -maxdepth 1 -type d -name '*.bundle' -print0 2>/dev/null)
+
+# ---- Pre-sign structural verification ----
+./Scripts/verify_app.sh "${APP_BUNDLE}" --pre-sign
+
 # ---- Code sign: inside-out, runtime hardened ----
 # Sparkle.framework contains nested XPC services and helpers that must be signed first.
 # We re-sign them with our Developer ID so notarization accepts the whole bundle under our team.
@@ -219,12 +246,6 @@ codesign --force --options runtime --timestamp \
          --sign "${SIGN_IDENTITY}" \
          "${EMBEDDED_SPARKLE}"
 
-# Resource-only bundle (no Mach-O) — no --options runtime.
-echo "Code signing KeyboardShortcuts resource bundle..."
-codesign --force --timestamp \
-         --sign "${SIGN_IDENTITY}" \
-         "${CONTENTS}/Resources/KeyboardShortcuts_KeyboardShortcuts.bundle"
-
 echo "Code signing main app with Developer ID + hardened runtime..."
 codesign --force --options runtime --timestamp \
          --sign "${SIGN_IDENTITY}" \
@@ -232,6 +253,12 @@ codesign --force --options runtime --timestamp \
 
 echo "Verifying signature..."
 codesign --verify --strict --verbose=2 "${APP_BUNDLE}"
+
+# ---- Post-sign structural + codesign verification ----
+# Redundant with the line above but catches regressions in verify_app.sh's
+# codesign check — defense in depth for the exact class (silent shipping) this
+# verifier exists to prevent.
+./Scripts/verify_app.sh "${APP_BUNDLE}"
 
 echo "Done! ${APP_BUNDLE} is signed (not yet notarized)."
 echo "  - To install locally: cp -r ${APP_BUNDLE} /Applications/"
