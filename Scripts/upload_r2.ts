@@ -108,6 +108,14 @@ function findSignUpdate(): string {
   if (pathCheck.exitCode === 0) {
     return new TextDecoder().decode(pathCheck.stdout).trim();
   }
+  // Prefer the SPM-vendored copy — Sparkle ships sign_update inside its artifact
+  // bundle, which is always present after a build. No Homebrew cask required.
+  const vendored = resolve(
+    import.meta.dir,
+    "..",
+    ".build/artifacts/sparkle/Sparkle/bin/sign_update",
+  );
+  if (existsSync(vendored)) return vendored;
   // Fall back to the Homebrew cask — tools live under Caskroom/sparkle/<ver>/bin.
   // Cask doesn't symlink binaries to PATH like formulas do.
   for (const prefix of ["/opt/homebrew/Caskroom/sparkle", "/usr/local/Caskroom/sparkle"]) {
