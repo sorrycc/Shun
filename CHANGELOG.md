@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+
+
+## 1.0.10 - 2026-06-29
 - Fix: the **Settings** window now reliably appears on macOS 26 (Tahoe). Previously a second "Settings…" click could do nothing, and on Tahoe the window sometimes failed to come to the front.
 
 
