@@ -1,7 +1,7 @@
 {
   "name": "Shun",
   "identifier": "com.shun.Shun",
-  "version": "1.0.10",
+  "version": "1.1.0",
   "copyright": "© 2026 chen cheng",
   "main": "./cmd/shun",
   "out": "build",

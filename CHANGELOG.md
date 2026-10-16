@@ -5,7 +5,7 @@ All notable changes to Shun are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 1.1.0
 - Shun is rewritten in Go with a native UI drawn by MyGo: one small binary that uses less memory while it waits in the menu bar. Your shortcuts, their keys, the **Enabled** switch, usage history and privacy choices carry over, and you can still go back to an earlier version.
 - Updates now come from Shun's GitHub releases, with a new update window, and download only what changed since your version.
 - Granting the Accessibility permission takes effect at once, without relaunching Shun; until then shortcuts still work, more slowly.
