@@ -10,5 +10,9 @@
     "infoPlist": {
       "LSUIElement": true
     }
+  },
+  "updates": {
+    "publicKey": "htgNalIc+XrzC40FL0gnujsJi0j7fWyEj7sQtn/TY7A=",
+    "github": "sorrycc/Shun"
   }
 }

@@ -59,23 +59,13 @@ section.
 
 ### One-time setup
 
-1. **Update signing key.** Make a key pair in a directory of its own (`go tool mygo keygen` without `-o` writes to
-   the directory other MyGo apps' keys live in):
+1. **Update signing key.** Shun's was made with
+   `go tool mygo keygen -o "~/Library/Application Support/mygo/update-keys/shun"`, and its public key is
+   `updates.publicKey` in `mygo.json` (the Release workflow fails without it). Keep `mygo-update.key` in a password
+   manager and in the `MYGO_UPDATER_PRIVATE_KEY` secret: installed apps accept only updates signed with it, so losing
+   it strands them.
 
-   ```bash
-   go tool mygo keygen -o ~/.config/shun-update-keys
-   ```
-
-   Put the public key in `mygo.json` and commit it, which turns updates on (the Release workflow fails without it):
-
-   ```json
-   "updates": { "publicKey": "<contents of mygo-update.pub>", "github": "sorrycc/shun" }
-   ```
-
-   Keep `mygo-update.key` in a password manager and in the `MYGO_UPDATER_PRIVATE_KEY` secret: installed apps accept
-   only updates signed with it, so losing it strands them.
-
-2. **Repository secrets** of `sorrycc/shun`:
+2. **Repository secrets** of `sorrycc/Shun`:
 
    | Secret | What |
    |---|---|
@@ -87,9 +77,8 @@ section.
    | `TELEMETRY_ENDPOINT_URL`, `TELEMETRY_INGEST_KEY` | as in `Scripts/telemetry.config` |
 
 3. **Public releases.** Installed apps read
-   `https://github.com/sorrycc/shun/releases/latest/download/update-darwin-<arch>.json` without signing in, so the
-   releases must be public: make the repository public, or publish them to a public repository of their own and set
-   `updates.github` in `mygo.json` to it. A private repository's releases are not found, and apps never update.
+   `https://github.com/sorrycc/Shun/releases/latest/download/update-darwin-<arch>.json` without signing in, so the
+   repository stays public: a private repository's releases are not found, and apps never update.
 
 ### Moving users of the Swift versions over (once)
 
