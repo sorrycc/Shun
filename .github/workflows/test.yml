@@ -1,0 +1,21 @@
+# Tests Shun on macOS as pushes to master and pull requests come.
+name: Test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test -short ./...

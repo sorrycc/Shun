@@ -1,14 +1,13 @@
-/.build
 /build
 /Shun.app
 /HotApp.app
 .DS_Store
-*.xcodeproj
-.swiftpm/
+/.mygo/
+*.test
 /tmp
 /.env
 /node_modules
 /.wrangler
 /Scripts/telemetry.config
+mygo-update.key
 .claude/worktrees
-

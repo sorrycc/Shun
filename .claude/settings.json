@@ -1,13 +1,20 @@
 {
   "permissions": {
     "allow": [
-      "Bash(swift build:*)",
-      "Bash(swift run:*)",
-      "Bash(swift test:*)",
-      "Bash(swift package:*)",
-      "Bash(./Scripts/package_app.sh:*)",
-      "Bash(./Scripts/release.sh:*)",
-      "Bash(bun run:*)",
+      "Bash(go build:*)",
+      "Bash(go test:*)",
+      "Bash(go vet:*)",
+      "Bash(go run:*)",
+      "Bash(go mod tidy:*)",
+      "Bash(gofmt:*)",
+      "Bash(go tool mygo dev:*)",
+      "Bash(Scripts/dev.sh:*)",
+      "Bash(go tool mygo vet:*)",
+      "Bash(go tool mygo build -platform darwin/arm64)",
+      "Bash(bun run dev:*)",
+      "Bash(bun run build:*)",
+      "Bash(bun run test:*)",
+      "Bash(Scripts/release-notes.sh:*)",
       "Bash(log show:*)",
       "Bash(log stream:*)",
       "Bash(xcrun notarytool log:*)",
@@ -25,7 +32,15 @@
       "Bash(mdls:*)"
     ],
     "deny": [
-      "Bash(bun release*)",
+      "Bash(Scripts/bump.sh*)",
+      "Bash(./Scripts/bump.sh*)",
+      "Bash(bun run bump*)",
+      "Bash(Scripts/sparkle_bridge.sh*)",
+      "Bash(./Scripts/sparkle_bridge.sh*)",
+      "Bash(bun run sparkle-bridge*)",
+      "Bash(*upload_r2.ts*)",
+      "Bash(go tool mygo build*-upload*)",
+      "Bash(go tool mygo keygen*)",
       "Bash(git push --force*)",
       "Bash(git push -f*)",
       "Bash(git tag -d:*)",
@@ -37,7 +52,9 @@
       "Write(VERSION)",
       "Edit(VERSION)",
       "Write(.env)",
-      "Edit(.env)"
+      "Edit(.env)",
+      "Write(mygo-update.key)",
+      "Edit(mygo-update.key)"
     ]
   }
 }

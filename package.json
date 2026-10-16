@@ -2,10 +2,11 @@
   "name": "shun",
   "private": true,
   "scripts": {
-    "dev": "swift run",
-    "build": "./Scripts/package_app.sh",
-    "release": "./Scripts/release.ts",
-    "upload": "./Scripts/upload_r2.ts"
+    "dev": "Scripts/dev.sh",
+    "build": "go tool mygo build -platform darwin/arm64",
+    "test": "go vet ./... && go test ./...",
+    "bump": "Scripts/bump.sh",
+    "sparkle-bridge": "Scripts/sparkle_bridge.sh"
   },
   "devDependencies": {
     "marked": "^12.0.0"

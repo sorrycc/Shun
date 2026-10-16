@@ -326,7 +326,7 @@ async function main(): Promise<void> {
   for (const p of [dmgPath, zipPath, shaPath, appBundle]) {
     if (!existsSync(p)) {
       throw new Error(
-        `Missing artifact: ${p}. Run ./Scripts/release.sh first.`,
+        `Missing artifact: ${p}. Run ./Scripts/sparkle_bridge.sh, which builds them.`,
       );
     }
   }

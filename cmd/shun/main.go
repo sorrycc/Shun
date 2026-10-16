@@ -1,0 +1,323 @@
+// Shun (瞬, "instant") switches to apps with global shortcuts: a shortcut
+// brings its app to the front, launching it when it does not run, and hides
+// it when it is in front already. It lives in the menu bar, and its Settings
+// window, of MyGo's native UI, binds apps to keys.
+package main
+
+import (
+	"context"
+	_ "embed"
+	"io"
+	"log"
+	"os"
+	"path/filepath"
+	"syscall"
+	"time"
+
+	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/plugins/updater"
+	"github.com/egoist/mygo/plugins/updater/native"
+	"github.com/egoist/mygo/ui"
+
+	"shun/internal/macos"
+	"shun/internal/store"
+	"shun/internal/telemetry"
+	"shun/internal/usage"
+)
+
+// defaultsDomain is the bundle ID of Shun, under which the Swift versions
+// kept their preferences in UserDefaults.
+const defaultsDomain = "com.shun.Shun"
+
+//go:embed trayicon.png
+var trayIcon []byte
+
+// app is Shun's state. Everything but the hotkey thread's work, the usage
+// log and the preferences is read and changed on the main thread.
+type app struct {
+	store *store.Store
+	prefs *store.Prefs
+	usage *usage.Store
+	keys  *hotkeys
+
+	win      *mygo.Window // Settings
+	tray     *mygo.Tray
+	windows  []*mygo.Window
+	quitting bool
+
+	icons *iconCache
+	ui    settingsState
+}
+
+func main() {
+	if !mygo.App.RequestSingleInstanceLock() {
+		return // the running Shun opens its Settings (OnSecondInstance)
+	}
+	// Development builds keep their data apart from the installed app's:
+	// a `go run` binary is named "shun", which is the installed app's
+	// directory on a case-insensitive disk.
+	if mygo.IsDev() && mygo.App.Name() != "Shun Dev" {
+		mygo.App.SetName("Shun Dev")
+	}
+	mygo.App.SetActivationPolicy(mygo.ActivationPolicyAccessory)
+	mygo.Use(native.Plugin)
+	logToFile()
+
+	a, err := newApp()
+	if err != nil {
+		log.Fatal(err)
+	}
+	mygo.App.OnWindowAllClosed(func() {}) // keep running in the menu bar
+	mygo.App.OnSecondInstance(func([]string, string) { a.openSettings() })
+	mygo.App.OnActivate(func(hasVisibleWindows bool) {
+		if !hasVisibleWindows {
+			a.openSettings()
+		}
+	})
+	mygo.App.OnWindowCreated(a.trackWindow)
+	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { a.quitting = true })
+	mygo.App.OnWillQuit(func(*mygo.QuitEvent) {
+		a.usage.SaveNow()
+		if a.tray != nil {
+			a.tray.Destroy()
+		}
+	})
+	mygo.App.WhenReady(a.ready)
+	if err := mygo.App.Run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// logToFile writes the log of release builds to ~/Library/Logs/Shun/Shun.log
+// as well, since an app opened from Finder has no terminal; the log of the
+// run before is kept once it is over a megabyte, as Shun.log.1.
+func logToFile() {
+	if mygo.IsDev() {
+		return
+	}
+	dir, err := mygo.App.Path(mygo.PathLogs)
+	if err != nil {
+		return
+	}
+	path := filepath.Join(dir, "Shun.log")
+	if info, err := os.Stat(path); err == nil && info.Size() > 1<<20 {
+		os.Rename(path, path+".1")
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return
+	}
+	log.SetOutput(io.MultiWriter(os.Stderr, f))
+}
+
+// dataDir is where Shun keeps its files: ~/Library/Application Support/Shun,
+// or SHUN_DATA_DIR.
+func dataDir() (string, error) {
+	if dir := os.Getenv("SHUN_DATA_DIR"); dir != "" {
+		return dir, os.MkdirAll(dir, 0o755)
+	}
+	return mygo.App.Path(mygo.PathUserData)
+}
+
+func newApp() (*app, error) {
+	dir, err := dataDir()
+	if err != nil {
+		return nil, err
+	}
+	if err := store.PrepareDir(dir); err != nil {
+		log.Printf("moving the HotApp directory: %v", err)
+	}
+	s, err := store.Open(dir)
+	if err != nil {
+		return nil, err
+	}
+	p, err := store.OpenPrefs(dir)
+	if err != nil {
+		return nil, err
+	}
+	a := &app{store: s, prefs: p, usage: usage.Open(dir), icons: newIconCache()}
+	a.ui.init()
+	return a, nil
+}
+
+func (a *app) ready() {
+	defaults := macos.Defaults{AppID: defaultsDomain}
+	if store.Migrate(a.store, a.prefs, defaults) {
+		if on, ok := defaults.Bool("SUEnableAutomaticChecks"); ok {
+			updater.SetAutomaticChecks(on)
+		}
+	}
+
+	a.keys = newHotkeys(a)
+	a.store.OnChange(a.keys.refresh)
+	// Activations are logged on the event tap's thread, which must not wait
+	// for the main one.
+	a.usage.OnChange(func() { go mygo.RunOnMain(a.invalidate) })
+	a.keys.start()
+	a.setUpTray()
+
+	if !macos.IsTrusted() {
+		go askForAccessibility()
+	}
+	if a.store.FirstLaunch() {
+		time.AfterFunc(500*time.Millisecond, func() { mygo.RunOnMain(a.openSettings) })
+	}
+	go a.startTelemetry()
+}
+
+// window returns the Settings window, made the first time: an app of the
+// menu bar mostly runs without it, and a window takes memory.
+func (a *app) window() *mygo.Window {
+	if a.win != nil {
+		return a.win
+	}
+	a.win = mygo.NewWindow(mygo.WindowOptions{
+		Title:             "Shun Settings",
+		Width:             580,
+		Height:            480,
+		MinWidth:          520,
+		MinHeight:         400,
+		Hidden:            true,
+		DisableFullScreen: true,
+		Content:           ui.View(a.view),
+	})
+	a.win.OnClose(func(e *mygo.CloseEvent) {
+		if !a.quitting {
+			e.PreventDefault()
+			a.win.Hide()
+		}
+	})
+	a.win.OnHide(func() {
+		a.ui.reset()
+		a.icons.clear() // apps may change while it is hidden
+	})
+	return a.win
+}
+
+// setUpTray puts Shun's icon in the menu bar, with its menu.
+func (a *app) setUpTray() {
+	var err error
+	a.tray, err = mygo.NewTray(mygo.TrayOptions{Icon: trayIcon, IconIsTemplate: true, ToolTip: "Shun"})
+	if err != nil {
+		log.Printf("no menu bar icon: %v", err)
+		return
+	}
+	a.updateTrayMenu()
+}
+
+func (a *app) updateTrayMenu() {
+	if a.tray == nil {
+		return
+	}
+	title := "Shun"
+	if v := mygo.App.Version(); v != "" {
+		title += " v" + v
+	}
+	a.tray.SetMenu(mygo.NewMenu([]*mygo.MenuItem{
+		{Label: title, Disabled: true},
+		mygo.Separator(),
+		{Label: "Enabled", Type: mygo.MenuItemCheckbox, Checked: a.prefs.GlobalEnabled(),
+			Click: func(it *mygo.MenuItem, _ *mygo.Window) { a.setGlobalEnabled(it.Checked) }},
+		{Label: "Settings…", Accelerator: "Cmd+,", Click: func(*mygo.MenuItem, *mygo.Window) { a.openSettings() }},
+		{Label: "Check for Updates…", Click: func(*mygo.MenuItem, *mygo.Window) { a.checkForUpdates() }},
+		mygo.Separator(),
+		{Label: "Quit Shun", Accelerator: "Cmd+Q", Click: func(*mygo.MenuItem, *mygo.Window) { mygo.App.Quit() }},
+	}))
+}
+
+// setGlobalEnabled turns every shortcut on or off.
+func (a *app) setGlobalEnabled(on bool) {
+	a.prefs.SetGlobalEnabled(on)
+	if a.keys != nil {
+		a.keys.refresh()
+	}
+	a.updateTrayMenu()
+	a.invalidate()
+}
+
+// openSettings shows the Settings window in front. An app without a Dock
+// icon cannot reliably come to the front on macOS 26 (Tahoe): it becomes a
+// regular app while it shows a window, and an accessory again once it shows
+// none (refreshActivationPolicy).
+func (a *app) openSettings() {
+	if a.store.RefreshStaleness() {
+		a.invalidate()
+	}
+	a.ui.loginItem = mygo.App.OpenAtLogin()
+	mygo.App.SetActivationPolicy(mygo.ActivationPolicyRegular)
+	win := a.window()
+	if !win.IsVisible() {
+		win.Center()
+	}
+	win.Show()
+	win.Focus()
+	mygo.App.Focus()
+}
+
+func (a *app) checkForUpdates() {
+	mygo.App.SetActivationPolicy(mygo.ActivationPolicyRegular)
+	mygo.App.Focus()
+	updater.CheckForUpdates()
+}
+
+// trackWindow watches every window, the update window's too, to drop the
+// Dock icon once none shows.
+func (a *app) trackWindow(w *mygo.Window) {
+	a.windows = append(a.windows, w)
+	w.OnHide(a.refreshActivationPolicy)
+	w.OnClose(func(*mygo.CloseEvent) { a.refreshActivationPolicy() })
+}
+
+func (a *app) refreshActivationPolicy() {
+	// After the window has left the screen.
+	time.AfterFunc(100*time.Millisecond, func() {
+		mygo.RunOnMain(func() {
+			for _, w := range a.windows {
+				if w.IsVisible() {
+					return
+				}
+			}
+			mygo.App.SetActivationPolicy(mygo.ActivationPolicyAccessory)
+		})
+	})
+}
+
+// askForAccessibility explains the permission the event tap needs.
+func askForAccessibility() {
+	res, err := mygo.Dialog.Message(mygo.MessageOptions{
+		Type:    mygo.MessageWarning,
+		Message: "Accessibility Permission Required",
+		Detail: "Shun needs Accessibility access to switch apps instantly. Please grant access in " +
+			"System Settings → Privacy & Security → Accessibility. Until then, shortcuts work more slowly.",
+		Buttons: []string{"Open System Settings", "Later"},
+	})
+	if err == nil && res.Button == 0 {
+		mygo.Shell.OpenExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+	}
+}
+
+// telemetryConfig returns where telemetry goes, from the Info.plist of
+// release builds; false for others.
+func telemetryConfig() (telemetry.Config, bool) {
+	endpoint, key := macos.InfoString("TelemetryEndpointURL"), macos.InfoString("TelemetryIngestKey")
+	if endpoint == "" || key == "" {
+		return telemetry.Config{}, false
+	}
+	home, _ := os.UserHomeDir()
+	osVersion, _ := syscall.Sysctl("kern.osproductversion")
+	return telemetry.Config{
+		Endpoint:    endpoint,
+		IngestKey:   key,
+		AppVersion:  mygo.App.Version(),
+		OSVersion:   osVersion,
+		Locale:      macos.LocaleIdentifier(),
+		CrashDir:    filepath.Join(home, "Library/Logs/DiagnosticReports"),
+		CrashPrefix: "Shun-",
+	}, true
+}
+
+func (a *app) startTelemetry() {
+	if c, ok := telemetryConfig(); ok {
+		telemetry.Run(context.Background(), c, a.prefs)
+	}
+}
