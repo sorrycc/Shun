@@ -6,21 +6,36 @@
 #
 # Usage: Scripts/sparkle_bridge.sh [--dry-run]
 #
-# Run it after the Release workflow published v$(cat VERSION). It builds
-# the same version locally, signed with the Developer ID and notarized (the
-# shun-notary profile), packs the app as Sparkle expects
+# Run it after the Release workflow published the version of mygo.json. It
+# builds the same version locally, signed with the Developer ID, notarized
+# (the shun-notary profile) and with the telemetry of
+# Scripts/telemetry.config, all set in mygo.json for the build only, packs the app as Sparkle expects
 # (build/Shun-<version>.zip, .dmg and .sha256, and ./Shun.app), and runs
 # Scripts/upload_r2.ts, which signs the zip with the Sparkle key and adds it
 # to appcast.xml. It needs .env (R2) and Sparkle's sign_update.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-VERSION="$(tr -d '[:space:]' < VERSION)"
+VERSION="$(jq -r .version mygo.json)"
 IDENTITY="Developer ID Application: chen cheng (KU8S35TEW8)"
+if [ -n "$(git status --porcelain mygo.json)" ]; then
+    echo "mygo.json has changes. Commit them first." >&2
+    exit 1
+fi
+# shellcheck source=/dev/null
+. Scripts/telemetry.config
+: "${TELEMETRY_ENDPOINT_URL:?missing in Scripts/telemetry.config}" "${TELEMETRY_INGEST_KEY:?missing in Scripts/telemetry.config}"
 
 echo "==> Building Shun $VERSION, signed and notarized"
-MACOS_SIGNING_IDENTITY="$IDENTITY" NOTARY_PROFILE=shun-notary \
-    go tool mygo build -platform darwin/arm64
+trap 'git checkout -- mygo.json' EXIT
+jq --arg identity "$IDENTITY" --arg url "$TELEMETRY_ENDPOINT_URL" --arg key "$TELEMETRY_INGEST_KEY" \
+    '.macos.signingIdentity = $identity | .macos.notarize = {keychainProfile: "shun-notary"}
+     | .macos.infoPlist += {TelemetryEndpointURL: $url, TelemetryIngestKey: $key}' \
+    mygo.json > mygo.json.tmp
+mv mygo.json.tmp mygo.json
+go tool mygo build -platform darwin/arm64
+git checkout -- mygo.json
+trap - EXIT
 APP="build/darwin-arm64/Shun.app"
 DMG="build/darwin-arm64/Shun $VERSION arm64.dmg"
 xcrun stapler staple "$APP" >/dev/null || true

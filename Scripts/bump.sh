@@ -1,22 +1,24 @@
 #!/usr/bin/env bash
-# Sets a new version in VERSION, commits it as v<version> with a tag of the
+# Sets a new version in mygo.json, commits it as v<version> with a tag of the
 # same name, and after asking pushes main and the tag, which makes the
-# Release workflow build, sign, notarize and publish it.
+# Release workflow build and publish it.
 # Usage: Scripts/bump.sh <version | patch | minor | major>
 #
-# The "## Unreleased" section of CHANGELOG.md becomes "## <version> - <date>"
-# in the same commit: the update window shows it, it is the notes of the
-# GitHub release, and the release fails without it.
+# The "## Unreleased" section of CHANGELOG.md becomes "## <version>" in the
+# same commit, unless a "## <version>" section is there already: the update
+# window shows it, it is the notes of the GitHub release, and the release
+# fails without it. Pre-release versions such as 1.2.0-beta.1 are refused,
+# as Shun has no beta channel yet.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 if [ $# -ne 1 ]; then
-    sed -n '2,9s/^# \{0,1\}//p' "$0" >&2
+    sed -n '2,11s/^# \{0,1\}//p' "$0" >&2
     exit 1
 fi
 
 cd "$ROOT"
-CURRENT="$(tr -d '[:space:]' < VERSION)"
+CURRENT="$(/usr/bin/python3 -c 'import json; print(json.load(open("mygo.json"))["version"])')"
 # Prints the new version, or fails when the argument isn't a version or
 # keyword or doesn't come after the current version.
 VERSION="$(/usr/bin/python3 - "$CURRENT" "$1" <<'PY'
@@ -60,35 +62,56 @@ if git rev-parse --verify --quiet "refs/tags/$TAG" >/dev/null \
     echo "Tag $TAG exists already." >&2
     exit 1
 fi
-if ! /usr/bin/python3 - <<'PY'
+if gh release view "$TAG" >/dev/null 2>&1; then
+    echo "Release $TAG exists already." >&2
+    exit 1
+fi
+if grep -q "^## $VERSION\$" CHANGELOG.md; then
+    RENAME_UNRELEASED=
+elif /usr/bin/python3 - <<'PY'
 import re, sys
 text = open("CHANGELOG.md").read()
 m = re.search(r"^## Unreleased\n(.*?)(?=^## |\Z)", text, re.M | re.S)
 sys.exit(0 if m and m.group(1).strip() else 1)
 PY
 then
-    echo "CHANGELOG.md has no \"## Unreleased\" section with notes. Add them and commit first." >&2
+    RENAME_UNRELEASED=1
+else
+    echo "CHANGELOG.md has no \"## $VERSION\" section, nor an \"## Unreleased\" one with notes. Add one and commit it first." >&2
     exit 1
 fi
 
 echo "==> $CURRENT -> $VERSION"
-printf '%s\n' "$VERSION" > VERSION
 /usr/bin/python3 - "$VERSION" <<'PY'
-import re, sys, datetime
+import json, sys
+with open("mygo.json") as f:
+    config = json.load(f)
+config["version"] = sys.argv[1]
+with open("mygo.json", "w") as f:
+    json.dump(config, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+PY
+FILES=mygo.json
+if [ -n "$RENAME_UNRELEASED" ]; then
+    /usr/bin/python3 - "$VERSION" <<'PY'
+import re, sys
 with open("CHANGELOG.md") as f:
     text = f.read()
-day = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
-text = re.sub(r"^## Unreleased$", "## Unreleased\n\n\n## %s - %s" % (sys.argv[1], day), text, count=1, flags=re.M)
+text = re.sub(r"^## Unreleased$", "## " + sys.argv[1], text, count=1, flags=re.M)
 with open("CHANGELOG.md", "w") as f:
     f.write(text)
 PY
-if [ "$(git diff --name-only | tr '\n' ' ')" != "CHANGELOG.md VERSION " ]; then
-    echo "Expected only CHANGELOG.md and VERSION to change:" >&2
+    FILES="CHANGELOG.md mygo.json"
+fi
+if [ "$(git diff --name-only | tr '\n' ' ')" != "$FILES " ] \
+    || [ "$(git diff -U0 mygo.json | grep -c '^[-+] ')" != 2 ] \
+    || { [ -n "$RENAME_UNRELEASED" ] && [ "$(git diff -U0 CHANGELOG.md | grep -c '^[-+]#')" != 2 ]; }; then
+    echo "Expected only the version in $FILES to change:" >&2
     git diff >&2
-    echo "Undo with: git checkout -- CHANGELOG.md VERSION" >&2
+    echo "Undo with: git checkout -- $FILES" >&2
     exit 1
 fi
-git commit --quiet -m "release: $VERSION" CHANGELOG.md VERSION
+git commit --quiet -m "$TAG" $FILES
 git tag "$TAG"
 git --no-pager log -1 --stat --format='%h %s' "$TAG"
 echo

@@ -12,7 +12,7 @@ SHUN_SHOTS=/some/dir go test ./cmd/shun                           # save PNGs of
 ```
 
 `Scripts/dev.sh` builds and runs a bare binary, `.mygo/dev/shun`, and rebuilds and restarts it as Go files, assets
-or `mygo.config.ts` change, rather than `go tool mygo dev`: macOS 26 keeps the menu bar icon of mygo dev's
+or `mygo.json` change, rather than `go tool mygo dev`: macOS 26 keeps the menu bar icon of mygo dev's
 "Shun Dev.app" bundle hidden, even when System Settings allows it. Run from a terminal, it has the terminal's
 Accessibility permission, so its event tap works; Launch at Login does not, as it needs a bundle. It keeps its data in `~/Library/Application Support/Shun Dev`, copied from the installed
 Shun's the first time. The installed Shun takes the same keys, so when it runs
@@ -29,8 +29,8 @@ permission because release builds keep the bundle ID `com.shun.Shun` and the Dev
 Releases need gitignored local files:
 
 - `.env` — R2 credentials, only for the one Sparkle bridge release (below)
-- `Scripts/telemetry.config` — telemetry endpoint + HMAC key for local release builds (CI takes them from secrets;
-  without them, the app ships with no telemetry)
+- `Scripts/telemetry.config` — telemetry endpoint + HMAC key for the Sparkle bridge's local build (CI takes them
+  from secrets; a build without them sends no telemetry)
 
 If you already have a working Shun clone on this machine, copy them over:
 
@@ -42,17 +42,18 @@ Otherwise, fill them in by hand from `.env.example` and `Scripts/telemetry.confi
 
 ## Releasing
 
-Version lives in the single-line `VERSION` file. Write the release notes under `## Unreleased` in `CHANGELOG.md` and
-commit them, then:
+The version is `version` in `mygo.json`. Write the release notes under `## Unreleased` in `CHANGELOG.md` and commit
+them, then:
 
 ```bash
 Scripts/bump.sh patch    # or minor, major, or a version such as 2.0.0
 ```
 
-It sets `VERSION`, renames `## Unreleased` to `## <version> - <date>` (adding a new empty `## Unreleased`), commits
-and tags `v<version>`, and after asking pushes `main` and the tag. The
+It sets the version in `mygo.json`, renames `## Unreleased` to `## <version>` in `CHANGELOG.md` (or keeps a
+`## <version>` section already there), commits and tags `v<version>`, and after asking pushes `main` and the tag. The
 [Release workflow](.github/workflows/release.yml) then builds arm64 and Intel, signed with the Developer ID and
-notarized, uploads the disk images and their signed updates to the GitHub release, and publishes it. Installed apps
+notarized (`mygo.json` signs ad hoc; the workflow sets the Developer ID, notarization and telemetry in it
+for the build), uploads the disk images and their signed updates to the GitHub release, and publishes it. Installed apps
 check for it once a day, and from the menu bar's **Check for Updates…**; the update window shows the changelog
 section.
 
@@ -63,7 +64,12 @@ section.
 
    ```bash
    go tool mygo keygen -o ~/.config/shun-update-keys
-   cp ~/.config/shun-update-keys/mygo-update.pub mygo-update.pub   # commit it
+   ```
+
+   Put the public key in `mygo.json` and commit it, which turns updates on (the Release workflow fails without it):
+
+   ```json
+   "updates": { "publicKey": "<contents of mygo-update.pub>", "github": "sorrycc/shun" }
    ```
 
    Keep `mygo-update.key` in a password manager and in the `MYGO_UPDATER_PRIVATE_KEY` secret: installed apps accept
@@ -83,7 +89,7 @@ section.
 3. **Public releases.** Installed apps read
    `https://github.com/sorrycc/shun/releases/latest/download/update-darwin-<arch>.json` without signing in, so the
    releases must be public: make the repository public, or publish them to a public repository of their own and set
-   `updates.github` in `mygo.config.ts` to it. A private repository's releases are not found, and apps never update.
+   `updates.github` in `mygo.json` to it. A private repository's releases are not found, and apps never update.
 
 ### Moving users of the Swift versions over (once)
 
@@ -94,9 +100,9 @@ Go version, publish that same version to the appcast too:
 Scripts/sparkle_bridge.sh --dry-run   # then without --dry-run
 ```
 
-It builds the version locally, signed with the Developer ID and notarized with the `shun-notary` profile
-(`xcrun notarytool store-credentials shun-notary --apple-id <id> --team-id KU8S35TEW8 --password <app-password>`),
-packs `build/Shun-<version>.zip` as Sparkle expects, and runs `Scripts/upload_r2.ts`, which signs it with the
+It builds the version locally, signed with the Developer ID, notarized with the `shun-notary` profile
+(`xcrun notarytool store-credentials shun-notary --apple-id <id> --team-id KU8S35TEW8 --password <app-password>`)
+and with the telemetry of `Scripts/telemetry.config` (set in `mygo.json` for the build, then restored), packs `build/Shun-<version>.zip` as Sparkle expects, and runs `Scripts/upload_r2.ts`, which signs it with the
 Sparkle key (keychain slot `ed25519-shun`; `sign_update` from `brew install --cask sparkle`) and adds it to
 `appcast.xml`. Sparkle checks that the new app is signed with the same Developer ID. Once installed, the Go app
 updates from GitHub; the appcast and `Scripts/upload_r2.ts` are no longer needed after that.

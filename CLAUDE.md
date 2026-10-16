@@ -11,8 +11,8 @@ purego. Same structure as `~/Projects/mayoi`.
 ## Agent rules (read first)
 - **Do not run `Scripts/bump.sh`, `Scripts/sparkle_bridge.sh`, `Scripts/upload_r2.ts`, `go tool mygo build -upload` or
   `go tool mygo keygen`.** Releases and keys are human-driven. `.claude/settings.json` denies these.
-- **Do not edit `VERSION` or `.env`.** Denied by settings. `mygo.config.ts` reads the version from `VERSION`.
-- **Never rotate the keys:** `mygo-update.pub` (MyGo updates) and `SPARKLE_PUBLIC_KEY` in `Scripts/sparkle.config`
+- **Do not edit `version` in `mygo.json`, or `.env`.** `Scripts/bump.sh` sets the version; `.env` is denied by settings.
+- **Never rotate the keys:** `updates.publicKey` in `mygo.json` (MyGo updates) and `SPARKLE_PUBLIC_KEY` in `Scripts/sparkle.config`
   (the Swift installs' last update) — installed apps would stop updating.
 - **Do not change the bundle ID `com.shun.Shun`, the app name `Shun`, or the Developer ID team `KU8S35TEW8`.** They key
   the data directory, the UserDefaults the migration reads, crash report names (`Shun-*.ips`), and the users'
@@ -37,9 +37,9 @@ SHUN_SHOTS=/tmp/shots go test ./cmd/shun        # PNGs of the Settings tabs, to 
 `Scripts/dev.sh` runs a bare binary (`.mygo/dev/shun`), rebuilt on change, not `go tool mygo dev`: macOS 26 keeps
 the menu bar icon of mygo dev's "Shun Dev.app" bundle hidden. Its event tap has the terminal's Accessibility.
 
-`mygo.config.ts` (evaluated with Bun) computes the configuration: version from `VERSION`, signing from
-`MACOS_SIGNING_IDENTITY` (ad hoc by default), notarization from `NOTARY_PROFILE`/`NOTARY_KEYCHAIN`, telemetry
-`Info.plist` keys from `TELEMETRY_*` env or `Scripts/telemetry.config`, updates only when `mygo-update.pub` exists.
+`mygo.json` is the configuration, as in mayoi: version, ad hoc signing, `LSUIElement`, and `updates` once the
+public key is in. Release builds get the Developer ID, notarization and the telemetry `Info.plist` keys patched into
+it by `.github/workflows/release.yml` (and `Scripts/sparkle_bridge.sh`, from `Scripts/telemetry.config`).
 
 Releasing (human): `Scripts/bump.sh patch` → tag push → `.github/workflows/release.yml` builds, signs, notarizes and
 publishes to GitHub releases, which installed apps update from. See CONTRIBUTING.md, including the one-time

@@ -1,6 +1,6 @@
 ---
 name: verify-release
-description: Verify a packaged Shun.app (or a .dmg/.zip in build/) is correctly Developer-ID signed, notarized, stapled, and Gatekeeper-approved. Use after `go tool mygo build` with MACOS_SIGNING_IDENTITY/NOTARY_PROFILE, or after Scripts/sparkle_bridge.sh, to confirm the artifact is shippable.
+description: Verify a packaged Shun.app (or a .dmg/.zip in build/) is correctly Developer-ID signed, notarized, stapled, and Gatekeeper-approved. Use after a Developer ID `go tool mygo build` (signing and notarize set in mygo.json), or after Scripts/sparkle_bridge.sh, to confirm the artifact is shippable.
 tools: Bash, Read, Glob
 ---
 
@@ -9,13 +9,13 @@ You verify that a built Shun artifact is ready to ship. Run checks in order, sto
 ## Target resolution
 1. If the user gave a path, use it.
 2. Else prefer `build/darwin-arm64/Shun.app`, then `build/darwin-amd64/Shun.app`, then `Shun.app` at repo root (made by Scripts/sparkle_bridge.sh).
-3. If none exists, tell the user to build first (`go tool mygo build -platform darwin/arm64` with `MACOS_SIGNING_IDENTITY` and `NOTARY_PROFILE` set) and stop.
+3. If none exists, tell the user to build first (`go tool mygo build -platform darwin/arm64` with `macos.signingIdentity` and `macos.notarize` set in `mygo.json`) and stop.
 
 ## Checks (run in this order)
 
 1. **Bundle sanity**
    - `plutil -p <app>/Contents/Info.plist | grep -E 'CFBundleShortVersionString|CFBundleIdentifier|LSUIElement|LSMinimumSystemVersion|Telemetry'`
-   - Expect: `CFBundleIdentifier = com.shun.Shun` (it keys the users' data and their Accessibility permission), `LSUIElement = 1`, `LSMinimumSystemVersion = 14.0`, the version of `VERSION`. Note whether `TelemetryEndpointURL` is present (release builds should have it).
+   - Expect: `CFBundleIdentifier = com.shun.Shun` (it keys the users' data and their Accessibility permission), `LSUIElement = 1`, `LSMinimumSystemVersion = 14.0`, the version of `mygo.json`. Note whether `TelemetryEndpointURL` is present (release builds should have it).
 
 2. **Codesign — deep, strict**
    - `codesign --verify --deep --strict --verbose=2 <app>`

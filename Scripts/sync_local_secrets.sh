@@ -18,8 +18,8 @@ if [[ ! -d "$SRC" ]]; then
   echo "error: source path does not exist: $SRC" >&2
   exit 1
 fi
-if [[ ! -f "$SRC/mygo.config.ts" && ! -f "$SRC/Package.swift" ]]; then
-  echo "error: $SRC does not look like a Shun clone (no mygo.config.ts or Package.swift)" >&2
+if [[ ! -f "$SRC/mygo.json" && ! -f "$SRC/mygo.config.ts" && ! -f "$SRC/Package.swift" ]]; then
+  echo "error: $SRC does not look like a Shun clone (no mygo.json, mygo.config.ts or Package.swift)" >&2
   exit 1
 fi
 if [[ "$SRC" -ef "$DST" ]]; then

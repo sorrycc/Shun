@@ -13,7 +13,7 @@ Written in Go, with a native UI drawn by [MyGo](https://github.com/egoist/mygo):
 
 ## Build
 
-Needs Go 1.27+ (and Bun, which evaluates `mygo.config.ts`).
+Needs Go 1.27+.
 
 ```bash
 Scripts/dev.sh                                # run "Shun Dev" with your shortcuts, rebuilt as you save

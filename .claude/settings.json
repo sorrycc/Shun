@@ -49,8 +49,6 @@
       "Bash(defaults delete:*)",
       "Bash(rm -rf ~*)",
       "Bash(rm -rf /*)",
-      "Write(VERSION)",
-      "Edit(VERSION)",
       "Write(.env)",
       "Edit(.env)",
       "Write(mygo-update.key)",

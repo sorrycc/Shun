@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs Shun Dev from source with live reload: it builds a bare binary, runs
-# it, and builds and restarts it when a Go file, an asset or mygo.config.ts
+# it, and builds and restarts it when a Go file, an asset or mygo.json
 # changes. A build that fails keeps the running one. Quit Shun Dev, or press
 # Ctrl-C, to stop.
 #
@@ -91,7 +91,7 @@ build() {
 
 # changed reports whether a source file is newer than the last build.
 changed() {
-    [ -n "$(find cmd internal resources mygo.config.ts go.mod go.sum -newer "$STAMP" -type f \
+    [ -n "$(find cmd internal resources mygo.json go.mod go.sum -newer "$STAMP" -type f \
         \( -name '*.go' -o -name '*.png' -o -name '*.ts' -o -name 'go.mod' -o -name 'go.sum' \) \
         -not -name '*_test.go' -print -quit 2>/dev/null)" ]
 }

@@ -18,12 +18,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Check the tag against VERSION and CHANGELOG.md
+      - name: Check the tag against mygo.json and CHANGELOG.md
         run: |
-          version="$(tr -d '[:space:]' < VERSION)"
-          test "$GITHUB_REF_NAME" = "v$version" || { echo "::error::tag $GITHUB_REF_NAME, but VERSION has $version"; exit 1; }
-          Scripts/release-notes.sh "$version" > /dev/null || { echo "::error::CHANGELOG.md has no ## $version section"; exit 1; }
-          test -s mygo-update.pub || { echo "::error::mygo-update.pub is missing: releases would ship without updates"; exit 1; }
+          version="$(jq -r .version mygo.json)"
+          test "$GITHUB_REF_NAME" = "v$version" || { echo "::error::tag $GITHUB_REF_NAME, but mygo.json has $version"; exit 1; }
+          grep -q "^## $version\$" CHANGELOG.md || { echo "::error::CHANGELOG.md has no ## $version section"; exit 1; }
+          jq -e '.updates.publicKey // empty' mygo.json > /dev/null || { echo "::error::mygo.json has no updates.publicKey: releases would ship without updates"; exit 1; }
       # The notes of the release are the version's section of CHANGELOG.md.
       - name: Create the draft release
         env:
@@ -43,10 +43,8 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      # mygo.config.ts is evaluated with Bun.
-      - uses: oven-sh/setup-bun@v2
-      # mygo.config.ts signs ad hoc unless told otherwise; releases sign with
-      # the Developer ID, which keeps the Accessibility permission users
+      # mygo.json signs ad hoc, so that builds on any Mac work; releases sign
+      # with the Developer ID, which keeps the Accessibility permission users
       # granted the Swift versions, and are notarized.
       - name: Import the certificate and the notary credentials
         env:
@@ -73,11 +71,23 @@ jobs:
             --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD"
           identity="$(security find-identity -v -p codesigning "$keychain" | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -1)"
           test -n "$identity" || { echo "::error::no Developer ID Application identity in MACOS_CERTIFICATE"; exit 1; }
-          {
-            echo "MACOS_SIGNING_IDENTITY=$identity"
-            echo "NOTARY_PROFILE=notary"
-            echo "NOTARY_KEYCHAIN=$keychain"
-          } >> "$GITHUB_ENV"
+          jq --arg identity "$identity" --arg keychain "$keychain" \
+            '.macos.signingIdentity = $identity | .macos.notarize = {keychainProfile: "notary", keychain: $keychain}' \
+            mygo.json > "$RUNNER_TEMP/mygo.json"
+          mv "$RUNNER_TEMP/mygo.json" mygo.json
+      # The telemetry endpoint and key go into Info.plist; without them the
+      # app sends none.
+      - name: Add the telemetry settings
+        env:
+          TELEMETRY_ENDPOINT_URL: ${{ secrets.TELEMETRY_ENDPOINT_URL }}
+          TELEMETRY_INGEST_KEY: ${{ secrets.TELEMETRY_INGEST_KEY }}
+        run: |
+          test -n "$TELEMETRY_ENDPOINT_URL" -a -n "$TELEMETRY_INGEST_KEY" \
+            || { echo "::error::TELEMETRY_ENDPOINT_URL and TELEMETRY_INGEST_KEY must be set"; exit 1; }
+          jq --arg url "$TELEMETRY_ENDPOINT_URL" --arg key "$TELEMETRY_INGEST_KEY" \
+            '.macos.infoPlist += {TelemetryEndpointURL: $url, TelemetryIngestKey: $key}' \
+            mygo.json > "$RUNNER_TEMP/mygo.json"
+          mv "$RUNNER_TEMP/mygo.json" mygo.json
       # mygo build only warns when it cannot sign the updates, and a release
       # without them is one installed apps never see.
       - name: Check the update signing key
@@ -92,8 +102,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }} # finds the published versions that delta updates start from, and uploads
           MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
-          TELEMETRY_ENDPOINT_URL: ${{ secrets.TELEMETRY_ENDPOINT_URL }}
-          TELEMETRY_INGEST_KEY: ${{ secrets.TELEMETRY_INGEST_KEY }}
         run: go tool mygo build -platform "darwin/arm64,darwin/amd64" -upload
       - name: Remove the keychain
         if: always()

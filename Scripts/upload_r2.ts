@@ -61,7 +61,7 @@ Publishes a Shun release to Cloudflare R2:
   - Verifies via S3 HEAD and public-URL HEAD smoke test
 
 Options:
-  --version X.Y.Z  Explicit version (default: read from VERSION file)
+  --version X.Y.Z  Explicit version (default: the version of mygo.json)
   --dry-run        Run preflight + sign + compose appcast; skip all R2 writes
   --force          Overwrite versioned artifacts (use with care)
   -h, --help       Show this help
@@ -303,7 +303,7 @@ async function main(): Promise<void> {
   const projectRoot = resolve(import.meta.dir, "..");
   process.chdir(projectRoot);
 
-  const version = args.version ?? readFileSync("VERSION", "utf8").trim();
+  const version = args.version ?? JSON.parse(readFileSync("mygo.json", "utf8")).version;
   if (!/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(version)) {
     throw new Error(`Invalid version: "${version}"`);
   }
