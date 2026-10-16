@@ -50,7 +50,7 @@ Scripts/bump.sh patch    # or minor, major, or a version such as 2.0.0
 ```
 
 It sets `VERSION`, renames `## Unreleased` to `## <version> - <date>` (adding a new empty `## Unreleased`), commits
-and tags `v<version>`, and after asking pushes `master` and the tag. The
+and tags `v<version>`, and after asking pushes `main` and the tag. The
 [Release workflow](.github/workflows/release.yml) then builds arm64 and Intel, signed with the Developer ID and
 notarized, uploads the disk images and their signed updates to the GitHub release, and publishes it. Installed apps
 check for it once a day, and from the menu bar's **Check for Updates…**; the update window shows the changelog

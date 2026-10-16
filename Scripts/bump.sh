@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Sets a new version in VERSION, commits it as v<version> with a tag of the
-# same name, and after asking pushes master and the tag, which makes the
+# same name, and after asking pushes main and the tag, which makes the
 # Release workflow build, sign, notarize and publish it.
 # Usage: Scripts/bump.sh <version | patch | minor | major>
 #
@@ -42,17 +42,17 @@ PY
 )"
 TAG="v$VERSION"
 
-if [ "$(git symbolic-ref --short HEAD 2>/dev/null)" != master ]; then
-    echo "Releases are made from master. Switch to it first." >&2
+if [ "$(git symbolic-ref --short HEAD 2>/dev/null)" != main ]; then
+    echo "Releases are made from main. Switch to it first." >&2
     exit 1
 fi
 if [ -n "$(git status --porcelain)" ]; then
     echo "The working tree has changes. Commit them first." >&2
     exit 1
 fi
-git fetch --quiet --tags origin master
-if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/master)" ]; then
-    echo "master differs from origin/master. Pull or push first." >&2
+git fetch --quiet --tags origin main
+if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+    echo "main differs from origin/main. Pull or push first." >&2
     exit 1
 fi
 if git rev-parse --verify --quiet "refs/tags/$TAG" >/dev/null \
@@ -96,11 +96,11 @@ echo "==> notes of the release, from CHANGELOG.md:"
 Scripts/release-notes.sh "$VERSION"
 echo
 
-read -r -p "Push master and $TAG to origin, which publishes the release? [y/N] " answer || echo
+read -r -p "Push main and $TAG to origin, which publishes the release? [y/N] " answer || echo
 if [[ "$answer" != [yY]* ]]; then
-    echo "Not pushed. Push later with: git push --atomic origin master $TAG"
+    echo "Not pushed. Push later with: git push --atomic origin main $TAG"
     echo "Or undo with: git tag -d $TAG && git reset --hard HEAD~1"
     exit 0
 fi
-git push --quiet --atomic origin master "$TAG"
+git push --quiet --atomic origin main "$TAG"
 echo "==> pushed $TAG. The Release workflow: https://github.com/sorrycc/shun/actions/workflows/release.yml"

@@ -1,9 +1,9 @@
-# Tests Shun on macOS as pushes to master and pull requests come.
+# Tests Shun on macOS as pushes to main and pull requests come.
 name: Test
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
 
 permissions:
