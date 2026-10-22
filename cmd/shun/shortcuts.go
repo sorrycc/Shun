@@ -101,6 +101,14 @@ func (a *app) shortcutCard(c *ui.Context) {
 		}
 		card.Opacity(card.AnimateTo("dim", dim, quick)).Children(func() {
 			a.shortcutList(c)
+			// Under a few shortcuts, the room left tells how to add more.
+			if len(a.store.Shortcuts) < 6 {
+				ui.Row(c).Gap(6).AlignItems(ui.Center).Justify(ui.Center).Padding(10).PassThrough().Children(func() {
+					ui.Icon(c, iconImport).FontSize(12).TextColor(t.TextMuted.Alpha(0.6))
+					ui.Text(c, "Drag apps here from Finder, or press + to add one").FontSize(11).
+						TextColor(t.TextMuted.Alpha(0.75)).SingleLine()
+				})
+			}
 		})
 	})
 }

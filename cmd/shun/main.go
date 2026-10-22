@@ -220,9 +220,13 @@ func (a *app) setUpTray() {
 // updateTrayMenu builds the menu of the menu bar icon: the shortcuts,
 // with their keys, which bring their apps forward, then Shun's own items.
 func (a *app) updateTrayMenu() {
-	if a.tray == nil {
-		return
+	if a.tray != nil {
+		a.tray.SetMenu(mygo.NewMenu(a.trayItems()))
 	}
+}
+
+// trayItems are the items of the menu bar menu.
+func (a *app) trayItems() []*mygo.MenuItem {
 	title := "Shun"
 	if v := mygo.App.Version(); v != "" {
 		title += " v" + v
@@ -256,7 +260,7 @@ func (a *app) updateTrayMenu() {
 		mygo.Separator(),
 		&mygo.MenuItem{Label: "Quit Shun", Accelerator: "Cmd+Q", Click: func(*mygo.MenuItem, *mygo.Window) { mygo.App.Quit() }},
 	)
-	a.tray.SetMenu(mygo.NewMenu(items))
+	return items
 }
 
 // maxTrayShortcuts is how many shortcuts the menu bar menu lists.

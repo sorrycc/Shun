@@ -4,6 +4,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -288,5 +289,30 @@ func TestPerDay(t *testing.T) {
 		if got := perDay(n); got != want {
 			t.Errorf("perDay(%v) = %q, want %q", n, got, want)
 		}
+	}
+}
+
+func TestTrayItems(t *testing.T) {
+	a := newTestApp(t)
+	labels := func() (l []string, acc map[string]string) {
+		acc = map[string]string{}
+		for _, it := range a.trayItems() {
+			l = append(l, it.Label)
+			acc[it.Label] = it.Accelerator
+		}
+		return
+	}
+	l, acc := labels()
+	// Gone's app is missing: not listed.
+	want := []string{"Shun", "", "iTerm2", "Safari", "", "Shortcuts Enabled", "Settings…", "Check for Updates…", "", "Quit Shun"}
+	if !slices.Equal(l, want) {
+		t.Fatalf("items %q, want %q", l, want)
+	}
+	if acc["iTerm2"] != "Alt+C" || acc["Safari"] != "" {
+		t.Errorf("accelerators %q", acc)
+	}
+	a.prefs.SetGlobalEnabled(false)
+	if _, acc := labels(); acc["iTerm2"] != "" {
+		t.Error("paused shortcuts show their keys")
 	}
 }

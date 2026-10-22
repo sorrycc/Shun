@@ -19,6 +19,7 @@ Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **General** ends with Shun's mark and version. **Privacy** explains what stays on your Mac even when telemetry is off.
 - Reopening Settings shows your apps' icons at once instead of loading them again.
 - The menu bar menu lists your shortcuts with their keys: choose one to bring its app forward.
+- Under a short list of shortcuts, a hint tells you that you can drag apps in from Finder.
 - **Shortcuts** shows a banner while shortcuts are paused, with **Resume**, or while Shun lacks the Accessibility permission, with a button to grant it. While paused, the list dims and the toolbar says so.
 - Recorded keys sit in a soft well instead of a bordered box. The window title changes with a short fade as you switch tabs, and the Accessibility status pops when it changes.
 - **Insights** shows your daily average under today's count, and as a line across the 7-day chart.
