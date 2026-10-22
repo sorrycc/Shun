@@ -3,13 +3,12 @@ package main
 import (
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/updater"
 	"github.com/egoist/mygo/ui"
-
-	"shun/internal/macos"
 )
 
 // generalView is the General tab: login, all shortcuts, the Accessibility
@@ -33,17 +32,19 @@ func (a *app) generalView(c *ui.Context) {
 			}
 		})
 		section(c, "Permissions", func() {
-			trusted := macos.IsTrusted()
+			trusted := a.trusted()
 			description := "Lets Shun switch apps instantly, before other apps see the keys."
 			if !trusted {
 				description = "Without it, shortcuts work, but more slowly."
 			}
 			settingRow(c, iconHand, tileIndigo, "Accessibility", description, func() {
+				// The status pops as it changes, as when the permission comes.
+				in := ui.ElementTransition{Duration: 260 * time.Millisecond, Enter: &ui.Motion{Scale: 0.8}}
 				if trusted {
-					statusPill(c, "Granted", t.Success)
+					ui.Box(c.Key("granted")).Transition(in).Children(func() { statusPill(c, "Granted", t.Success) })
 					return
 				}
-				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Row(c.Key("not-granted")).Gap(8).AlignItems(ui.Center).Transition(in).Children(func() {
 					statusPill(c, "Not granted", t.Warning)
 					if ui.Button(c, "Open Settings…").Clicked() {
 						mygo.Shell.OpenExternal(accessibilitySettings)
@@ -120,7 +121,8 @@ func (a *app) insightsView(c *ui.Context) {
 	page(c, func() {
 		ui.Row(c).Gap(12).Children(func() {
 			statTile(c, iconBolt, tileOrange, "Switches", total, "past 7 days", 0)
-			statTile(c, iconActivity, tileBlue, "Today", days[len(days)-1], "switches", 60*time.Millisecond)
+			statTile(c, iconActivity, tileBlue, "Today", days[len(days)-1],
+				perDay(float32(total)/float32(len(days)))+" a day on average", 60*time.Millisecond)
 			statTile(c, iconLayers, tilePurple, "Apps", a.usage.Apps(), "switched to", 120*time.Millisecond)
 		})
 		section(c, "Last 7 Days", func() {
@@ -169,6 +171,14 @@ func (a *app) insightsView(c *ui.Context) {
 	}
 }
 
+// perDay says an average, with a decimal while it is small.
+func perDay(n float32) string {
+	if n >= 10 {
+		return fmt.Sprintf("%.0f", n)
+	}
+	return strings.TrimSuffix(fmt.Sprintf("%.1f", n), ".0")
+}
+
 // statTile is a number of the Insights tab, which counts up as it shows.
 func statTile(c *ui.Context, icon *ui.SVG, tint ui.Color, label string, n int, unit string, delay time.Duration) {
 	t := c.Theme()
@@ -196,8 +206,14 @@ func dailyChart(c *ui.Context, days [7]int) {
 		most = max(most, n)
 	}
 	const height = 96
+	total := 0
+	for _, n := range days {
+		total += n
+	}
+	avg := float32(total) / float32(len(days)) * height / float32(most)
 	today := time.Now()
-	ui.Row(c).Gap(10).AlignItems(ui.End).Children(func() {
+	// The columns touch, which keeps the average line through them whole.
+	ui.Row(c).AlignItems(ui.End).Children(func() {
 		for i, n := range days {
 			day := today.AddDate(0, 0, i-len(days)+1)
 			isToday := i == len(days)-1
@@ -215,6 +231,9 @@ func dailyChart(c *ui.Context, days [7]int) {
 					count.Invisible()
 				}
 				ui.Column(c).Height(height).FillWidth().Justify(ui.End).AlignItems(ui.Center).Children(func() {
+					line := ui.Box(c.Key("avg")).Absolute().Left(0).Right(0).Height(1).PassThrough().
+						Background(t.Text.Alpha(0.14))
+					line.Bottom(grow(line, "y", avg, 0))
 					bar := ui.Box(c).Width(22).Radius(5)
 					h := grow(bar, "h", float32(n)*height/float32(most), time.Duration(i)*40*time.Millisecond)
 					bar.Height(max(h, 3))

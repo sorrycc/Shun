@@ -71,19 +71,35 @@ func dropOverlay(c *ui.Context) {
 }
 
 // shortcutCard holds the list in a card, as the other tabs their settings,
-// under a caption that tells how to use it.
+// under a caption that tells how to use it, and a banner while shortcuts
+// are paused or slow.
 func (a *app) shortcutCard(c *ui.Context) {
 	t := c.Theme()
 	l := lookOf(t)
 	ui.Column(c).Grow(1).Gap(8).Padding(16, 20, 14, 20).Children(func() {
+		switch {
+		case !a.prefs.GlobalEnabled():
+			banner(c, "paused", iconPause, tileOrange, "Shortcuts are paused",
+				"None of them works until you turn them back on.", "Resume", func() { a.setGlobalEnabled(true) })
+		case !a.trusted():
+			banner(c, "untrusted", iconHand, tileIndigo, "Switch apps instantly",
+				"Grant Shun the Accessibility permission; until then, shortcuts are slower.", "Open Settings…",
+				func() { mygo.Shell.OpenExternal(accessibilitySettings) })
+		}
 		ui.Row(c).PaddingX(4).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, "Apps").FontSize(12).FontWeight(600).TextColor(t.TextMuted)
 			ui.Spacer(c)
 			ui.Text(c, "Click a shortcut to record keys · drag to reorder").FontSize(11).
 				TextColor(t.TextMuted.Alpha(0.8)).SingleLine()
 		})
-		ui.Column(c).Grow(1).Radius(10).Background(l.card).Border(1, l.cardBorder).
-			Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, 0.04)).Clip().Children(func() {
+		card := ui.Column(c).Grow(1).Radius(10).Background(l.card).Border(1, l.cardBorder).
+			Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, 0.04)).Clip()
+		// Paused, the list dims, as its shortcuts each do turned off.
+		dim := float32(1)
+		if !a.prefs.GlobalEnabled() {
+			dim = 0.6
+		}
+		card.Opacity(card.AnimateTo("dim", dim, quick)).Children(func() {
 			a.shortcutList(c)
 		})
 	})
@@ -233,14 +249,17 @@ func (a *app) toolbar(c *ui.Context) {
 					on++
 				}
 			}
-			color := t.TextMuted
-			if on > 0 && a.prefs.GlobalEnabled() {
+			color, status := t.TextMuted, fmt.Sprintf("%d of %d active", on, n)
+			switch {
+			case !a.prefs.GlobalEnabled():
+				color, status = tileOrange, "Paused"
+			case on > 0:
 				color = t.Success
 			}
 			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 				dot := ui.Box(c).Size(6, 6).Radius(3)
 				dot.Background(dot.AnimateColor("dot", color, quick))
-				ui.Textf(c, "%d of %d active", on, n).FontSize(11).TextColor(t.TextMuted).FontFeatures("tnum")
+				ui.Text(c, status).FontSize(11).TextColor(t.TextMuted).FontFeatures("tnum")
 			})
 		}
 		ui.Spacer(c)

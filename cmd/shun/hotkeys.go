@@ -109,6 +109,8 @@ func (h *hotkeys) waitForPermission() {
 				h.refreshCarbon(nil)
 				h.refresh()
 			}
+			h.a.ui.trustedAt = time.Time{} // Settings shows it at once
+			h.a.invalidate()
 		})
 		return
 	}
@@ -185,6 +187,21 @@ func (h *hotkeys) refreshCarbon(bindings []hotkey.Binding) {
 	}
 }
 
+// bringForward brings the app of a shortcut to the front, launching it if
+// it does not run, as when it is chosen in the menu bar: unlike its keys,
+// it does not hide it, nor count in the usage.
+func bringForward(e hotkey.Entry) {
+	if app, ok := macos.InstanceOf(e.BundleID); ok {
+		macos.Activate(app.PID)
+		return
+	}
+	go func() {
+		if err := mygo.Shell.LaunchApp(mygo.InstalledApp{ID: e.BundleID, Path: e.Path}); err != nil {
+			log.Printf("menu: launching %s: %v", e.Path, err)
+		}
+	}()
+}
+
 // carbonToggle does what the engine decides, without the workspace cache:
 // a global shortcut runs on the main thread, where asking is cheap enough.
 func (h *hotkeys) carbonToggle(e hotkey.Entry) {
@@ -205,5 +222,6 @@ func (h *hotkeys) carbonToggle(e hotkey.Entry) {
 func (a *app) appsChanged() {
 	if a.store.RefreshStaleness() {
 		a.invalidate()
+		a.updateTrayMenu()
 	}
 }

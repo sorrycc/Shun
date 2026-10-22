@@ -19,6 +19,7 @@ import (
 	"github.com/egoist/mygo/plugins/updater/native"
 	"github.com/egoist/mygo/ui"
 
+	"shun/internal/hotkey"
 	"shun/internal/macos"
 	"shun/internal/store"
 	"shun/internal/telemetry"
@@ -47,6 +48,7 @@ type app struct {
 
 	icons *iconCache
 	ui    settingsState
+	trust func() bool // whether Shun has the Accessibility permission
 }
 
 func main() {
@@ -135,7 +137,7 @@ func newApp() (*app, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &app{store: s, prefs: p, usage: usage.Open(dir), icons: newIconCache()}
+	a := &app{store: s, prefs: p, usage: usage.Open(dir), icons: newIconCache(), trust: macos.IsTrusted}
 	a.ui.init()
 	return a, nil
 }
@@ -150,6 +152,7 @@ func (a *app) ready() {
 
 	a.keys = newHotkeys(a)
 	a.store.OnChange(a.keys.refresh)
+	a.store.OnChange(a.updateTrayMenu)
 	// Activations are logged on the event tap's thread, which must not wait
 	// for the main one.
 	a.usage.OnChange(func() { go mygo.RunOnMain(a.invalidate) })
@@ -174,7 +177,7 @@ func (a *app) window() *mygo.Window {
 	a.win = mygo.NewWindow(mygo.WindowOptions{
 		Title:             "Shun Settings",
 		Width:             600,
-		Height:            520,
+		Height:            560,
 		MinWidth:          540,
 		MinHeight:         420,
 		Hidden:            true,
@@ -214,6 +217,8 @@ func (a *app) setUpTray() {
 	a.updateTrayMenu()
 }
 
+// updateTrayMenu builds the menu of the menu bar icon: the shortcuts,
+// with their keys, which bring their apps forward, then Shun's own items.
 func (a *app) updateTrayMenu() {
 	if a.tray == nil {
 		return
@@ -222,17 +227,40 @@ func (a *app) updateTrayMenu() {
 	if v := mygo.App.Version(); v != "" {
 		title += " v" + v
 	}
-	a.tray.SetMenu(mygo.NewMenu([]*mygo.MenuItem{
-		{Label: title, Disabled: true},
-		mygo.Separator(),
-		{Label: "Enabled", Type: mygo.MenuItemCheckbox, Checked: a.prefs.GlobalEnabled(),
+	items := []*mygo.MenuItem{{Label: title, Disabled: true}, mygo.Separator()}
+	on := a.prefs.GlobalEnabled()
+	n := 0
+	for _, sc := range a.store.Shortcuts {
+		if !sc.IsEnabled || sc.Stale {
+			continue
+		}
+		if n++; n > maxTrayShortcuts {
+			break
+		}
+		item := &mygo.MenuItem{Label: sc.DisplayName}
+		if sc.Combo != nil && on {
+			item.Accelerator, _ = sc.Combo.Accelerator()
+		}
+		entry := hotkey.Entry{BundleID: sc.BundleIdentifier, Path: sc.Path()}
+		item.Click = func(*mygo.MenuItem, *mygo.Window) { bringForward(entry) }
+		items = append(items, item)
+	}
+	if n > 0 {
+		items = append(items, mygo.Separator())
+	}
+	items = append(items,
+		&mygo.MenuItem{Label: "Shortcuts Enabled", Type: mygo.MenuItemCheckbox, Checked: on,
 			Click: func(it *mygo.MenuItem, _ *mygo.Window) { a.setGlobalEnabled(it.Checked) }},
-		{Label: "Settings…", Accelerator: "Cmd+,", Click: func(*mygo.MenuItem, *mygo.Window) { a.openSettings() }},
-		{Label: "Check for Updates…", Click: func(*mygo.MenuItem, *mygo.Window) { a.checkForUpdates() }},
+		&mygo.MenuItem{Label: "Settings…", Accelerator: "Cmd+,", Click: func(*mygo.MenuItem, *mygo.Window) { a.openSettings() }},
+		&mygo.MenuItem{Label: "Check for Updates…", Click: func(*mygo.MenuItem, *mygo.Window) { a.checkForUpdates() }},
 		mygo.Separator(),
-		{Label: "Quit Shun", Accelerator: "Cmd+Q", Click: func(*mygo.MenuItem, *mygo.Window) { mygo.App.Quit() }},
-	}))
+		&mygo.MenuItem{Label: "Quit Shun", Accelerator: "Cmd+Q", Click: func(*mygo.MenuItem, *mygo.Window) { mygo.App.Quit() }},
+	)
+	a.tray.SetMenu(mygo.NewMenu(items))
 }
+
+// maxTrayShortcuts is how many shortcuts the menu bar menu lists.
+const maxTrayShortcuts = 20
 
 // setGlobalEnabled turns every shortcut on or off.
 func (a *app) setGlobalEnabled(on bool) {
@@ -249,9 +277,7 @@ func (a *app) setGlobalEnabled(on bool) {
 // regular app while it shows a window, and an accessory again once it shows
 // none (refreshActivationPolicy).
 func (a *app) openSettings() {
-	if a.store.RefreshStaleness() {
-		a.invalidate()
-	}
+	a.appsChanged()
 	a.ui.loginItem = mygo.App.OpenAtLogin()
 	mygo.App.SetActivationPolicy(mygo.ActivationPolicyRegular)
 	win := a.window()
@@ -259,6 +285,7 @@ func (a *app) openSettings() {
 		win.Center()
 	}
 	win.Show()
+	win.Invalidate() // with what changed while it hid
 	win.Focus()
 	mygo.App.Focus()
 }

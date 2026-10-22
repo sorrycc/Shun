@@ -18,6 +18,11 @@ Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Pages slide in from the direction of the tab you choose. The app picker's highlight glides between results, and the bars of the 7-day chart highlight on hover.
 - **General** ends with Shun's mark and version. **Privacy** explains what stays on your Mac even when telemetry is off.
 - Reopening Settings shows your apps' icons at once instead of loading them again.
+- The menu bar menu lists your shortcuts with their keys: choose one to bring its app forward.
+- **Shortcuts** shows a banner while shortcuts are paused, with **Resume**, or while Shun lacks the Accessibility permission, with a button to grant it. While paused, the list dims and the toolbar says so.
+- Recorded keys sit in a soft well instead of a bordered box. The window title changes with a short fade as you switch tabs, and the Accessibility status pops when it changes.
+- **Insights** shows your daily average under today's count, and as a line across the 7-day chart.
+- The Settings window is a little taller, so Insights fits without scrolling as much. Settings no longer redraws while hidden on every shortcut you press, and checks the Accessibility permission at most once a second.
 
 ## 1.1.0
 - Shun is rewritten in Go with a native UI drawn by MyGo: one small binary that uses less memory while it waits in the menu bar. Your shortcuts, their keys, the **Enabled** switch, usage history and privacy choices carry over, and you can still go back to an earlier version.

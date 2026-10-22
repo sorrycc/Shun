@@ -43,6 +43,10 @@ type settingsState struct {
 	loginItem    bool
 	confirmClear bool
 	confirmReset bool
+
+	// Whether Shun has the Accessibility permission, and when it was asked.
+	isTrusted bool
+	trustedAt time.Time
 }
 
 type notice struct {
@@ -62,14 +66,24 @@ func (s *settingsState) reset() {
 	s.confirmClear, s.confirmReset = false, false
 }
 
+// trusted reports whether Shun has the Accessibility permission, asked at
+// most once a second, though views ask on every frame.
+func (a *app) trusted() bool {
+	if now := time.Now(); now.Sub(a.ui.trustedAt) > time.Second {
+		a.ui.isTrusted, a.ui.trustedAt = a.trust(), now
+	}
+	return a.ui.isTrusted
+}
+
 func (a *app) alert(title, text string) {
 	a.ui.alertTitle, a.ui.alertText, a.ui.alertOpen = title, text, true
 }
 
 // invalidate draws the Settings window again, after a change from outside
-// its view.
+// its view: not while it hides, as every shortcut pressed changes usage,
+// and it draws afresh as it shows.
 func (a *app) invalidate() {
-	if a.win != nil {
+	if a.win != nil && a.win.IsVisible() {
 		a.win.Invalidate()
 	}
 }
@@ -187,6 +201,27 @@ func switchRow(c *ui.Context, icon *ui.SVG, tint ui.Color, label, description st
 		}
 	})
 	return changed
+}
+
+// banner tells, over a page, of a state that keeps shortcuts from working
+// as they should, with the action that fixes it. It slides in as the state
+// comes, and fades as it goes.
+func banner(c *ui.Context, key string, icon *ui.SVG, tint ui.Color, title, text, action string, fix func()) {
+	t := c.Theme()
+	l := lookOf(t)
+	ui.Row(c.Key(key)).Gap(10).AlignItems(ui.Center).Padding(9, 10, 9, 10).Margin(0, 0, 4, 0).Radius(10).
+		Background(tint.Alpha(0.1).Over(l.card)).Border(1, tint.Alpha(0.28)).
+		Transition(ui.ElementTransition{Animation: &settle, Enter: &ui.Motion{Y: -8}, Exit: &ui.Motion{}}).
+		Children(func() {
+			iconTile(c, icon, tint)
+			ui.Column(c).Grow(1).Shrink(1).Gap(1).Children(func() {
+				ui.Text(c, title).FontSize(12).FontWeight(600)
+				ui.Text(c, text).FontSize(11).TextColor(t.TextMuted).LineHeight(1.3)
+			})
+			if ui.Button(c, action).Clicked() {
+				fix()
+			}
+		})
 }
 
 // rowIndent is where the text of a row with an icon starts, for dividers.

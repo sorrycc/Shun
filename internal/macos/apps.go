@@ -231,12 +231,20 @@ func LocaleIdentifier() (s string) {
 // IsTrusted reports whether Shun has the Accessibility permission, which
 // the event tap needs.
 func IsTrusted() bool {
-	load()
-	fn, err := purego.Dlsym(libAS, "AXIsProcessTrusted")
-	if err != nil {
-		log.Print(err)
+	fn := axIsProcessTrusted()
+	if fn == 0 {
 		return false
 	}
 	r, _, _ := purego.SyscallN(fn)
 	return byte(r) != 0
 }
+
+// axIsProcessTrusted is AXIsProcessTrusted, looked up once.
+var axIsProcessTrusted = sync.OnceValue(func() uintptr {
+	load()
+	fn, err := purego.Dlsym(libAS, "AXIsProcessTrusted")
+	if err != nil {
+		log.Print(err)
+	}
+	return fn
+})

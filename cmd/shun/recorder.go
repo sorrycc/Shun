@@ -108,14 +108,19 @@ func (a *app) recorder(c *ui.Context, id string, combo *keys.Combo) {
 		})
 	}
 
-	border, bg := l.cardBorder, l.card
+	// Its keys sit in a soft well, which takes a border as the pointer
+	// comes; without keys, it is a dashed outline.
+	border, bg := t.Text.Alpha(0), t.Text.Alpha(0.045)
+	if combo == nil {
+		border, bg = l.cardBorder.Mix(t.Text.Alpha(0.2), 0.5), t.Text.Alpha(0)
+	}
 	switch {
 	case *recording:
 		// The border breathes while it waits for the keys.
 		pulse := box.Loop("pulse", 1200*time.Millisecond, ui.Bounce(ui.EaseInOut))
-		border, bg = t.Accent.Alpha(0.55+0.45*pulse), t.Accent.Alpha(0.07).Over(l.card)
+		border, bg = t.Accent.Alpha(0.55+0.45*pulse), t.Accent.Alpha(0.08)
 	case box.Hovered():
-		border = t.Text.Alpha(0.2)
+		border, bg = t.Text.Alpha(0.22), bg.Over(t.Text.Alpha(0.02))
 	}
 	box.Border(1.5, box.AnimateColor("border", border, quick)).Background(box.AnimateColor("bg", bg, quick))
 	if combo == nil && !*recording {

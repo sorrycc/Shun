@@ -80,7 +80,9 @@ func header(c *ui.Context, selected *int) {
 		if bar.Height > 0 {
 			inset := max(bar.Left, bar.Right) // centered in the window
 			ui.Row(c).Height(bar.Height).Padding(0, inset).Center().Children(func() {
-				ui.Text(c, settingsTabs[*selected].name).FontSize(13).FontWeight(600).SingleLine()
+				// The title of the tab chosen rises in as the last one fades.
+				ui.Text(c.Key(*selected), settingsTabs[*selected].name).FontSize(13).FontWeight(600).SingleLine().
+					Transition(ui.ElementTransition{Duration: 180 * time.Millisecond, Enter: &ui.Motion{Y: 4}, Exit: &ui.Motion{Y: -4}})
 			})
 		} else {
 			ui.Box(c).Height(8)

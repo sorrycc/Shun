@@ -15,7 +15,7 @@ import (
 	"shun/internal/usage"
 )
 
-func newTestApp(t *testing.T) *app {
+func newTestApp(t testing.TB) *app {
 	t.Helper()
 	dir := t.TempDir()
 	s, err := store.Open(dir)
@@ -24,7 +24,7 @@ func newTestApp(t *testing.T) *app {
 	}
 	s.AppExists = func(p string) bool { return p != "/Applications/Gone.app" }
 	p, _ := store.OpenPrefs(dir)
-	a := &app{store: s, prefs: p, usage: usage.Open(dir), icons: newIconCache()}
+	a := &app{store: s, prefs: p, usage: usage.Open(dir), icons: newIconCache(), trust: func() bool { return true }}
 	t.Cleanup(a.usage.SaveNow) // before dir goes, rather than as it goes
 	a.icons.draw = func(string) *ui.Bitmap { return nil }
 	a.ui.init()
@@ -253,5 +253,40 @@ func TestPicker(t *testing.T) {
 	tt.Click("Done")
 	if a.ui.picking {
 		t.Error("closed")
+	}
+}
+
+func TestBanners(t *testing.T) {
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 600, 520)
+	if tt.HasText("Shortcuts are paused") || tt.HasText("Switch apps instantly") {
+		t.Fatalf("banner while all is well: %q", tt.Texts())
+	}
+	a.setGlobalEnabled(false)
+	tt.Frame()
+	if !tt.HasText("Shortcuts are paused") {
+		t.Fatalf("no paused banner in %q", tt.Texts())
+	}
+	shot(t, tt, "paused")
+	if err := tt.Click("Resume"); err != nil {
+		t.Fatal(err)
+	}
+	if !a.prefs.GlobalEnabled() {
+		t.Error("Resume leaves shortcuts paused")
+	}
+	a.trust = func() bool { return false }
+	a.ui.trustedAt = time.Time{}
+	tt.Frame()
+	if !tt.HasText("Switch apps instantly") || !tt.HasText("Open Settings…") {
+		t.Fatalf("no permission banner in %q", tt.Texts())
+	}
+	shot(t, tt, "untrusted")
+}
+
+func TestPerDay(t *testing.T) {
+	for n, want := range map[float32]string{0: "0", 0.29: "0.3", 3: "3", 12.4: "12"} {
+		if got := perDay(n); got != want {
+			t.Errorf("perDay(%v) = %q, want %q", n, got, want)
+		}
 	}
 }
