@@ -34,6 +34,7 @@ var (
 	iconBug      = svg(`<path d="m8 2 1.88 1.88"/><path d="M14.12 3.88 16 2"/><path d="M9 7.13v-1a3 3 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/>`)
 	iconHash     = svg(`<path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/>`)
 	iconLock     = svg(`<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>`)
+	iconGrip     = svg(`<circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/>`)
 	iconBolt     = svg(`<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>`)
 )
 
@@ -44,14 +45,15 @@ var (
 type iconCache struct {
 	bitmaps map[string]*ui.Bitmap // by app path; nil where there is none
 	loading map[string]bool
+	stale   map[string]bool // kept from before, to draw again
 	draw    func(path string) *ui.Bitmap
 	post    func(fn func())
 	slots   chan struct{} // icons drawn at once
 }
 
 func newIconCache() *iconCache {
-	return &iconCache{bitmaps: map[string]*ui.Bitmap{}, loading: map[string]bool{}, draw: drawIcon,
-		slots: make(chan struct{}, 4)}
+	return &iconCache{bitmaps: map[string]*ui.Bitmap{}, loading: map[string]bool{}, stale: map[string]bool{},
+		draw: drawIcon, slots: make(chan struct{}, 4)}
 }
 
 const iconPoints = 32
@@ -71,8 +73,13 @@ func drawIcon(path string) *ui.Bitmap {
 }
 
 // get returns the icon of the app at path, and whether it is known yet.
+// An icon kept from before shows while it is drawn again.
 func (ic *iconCache) get(path string) (*ui.Bitmap, bool) {
 	if b, ok := ic.bitmaps[path]; ok {
+		if ic.stale[path] && ic.post != nil {
+			delete(ic.stale, path)
+			ic.load(path)
+		}
 		return b, true
 	}
 	if ic.post == nil {
@@ -80,23 +87,45 @@ func (ic *iconCache) get(path string) (*ui.Bitmap, bool) {
 		ic.bitmaps[path] = b
 		return b, true
 	}
-	if !ic.loading[path] {
-		ic.loading[path] = true
-		go func() {
-			ic.slots <- struct{}{}
-			b := ic.draw(path)
-			<-ic.slots
-			ic.post(func() {
-				delete(ic.loading, path)
-				ic.bitmaps[path] = b
-			})
-		}()
-	}
+	ic.load(path)
 	return nil, false
 }
 
-// clear forgets the icons, as the Settings window hides: apps may change.
-func (ic *iconCache) clear() { clear(ic.bitmaps) }
+// load draws the icon of the app at path in the background.
+func (ic *iconCache) load(path string) {
+	if ic.loading[path] {
+		return
+	}
+	ic.loading[path] = true
+	go func() {
+		ic.slots <- struct{}{}
+		b := ic.draw(path)
+		<-ic.slots
+		ic.post(func() {
+			delete(ic.loading, path)
+			if old := ic.bitmaps[path]; b != nil || old == nil {
+				ic.bitmaps[path] = b
+			}
+		})
+	}()
+}
+
+// clear forgets the icons as the Settings window hides, but those of the
+// apps at keep, the shortcuts', which show at once as it opens again, and
+// are drawn again then, in case their apps changed.
+func (ic *iconCache) clear(keep []string) {
+	kept := map[string]*ui.Bitmap{}
+	for _, p := range keep {
+		if b := ic.bitmaps[p]; b != nil {
+			kept[p] = b
+		}
+	}
+	clear(ic.bitmaps)
+	clear(ic.stale)
+	for p, b := range kept {
+		ic.bitmaps[p], ic.stale[p] = b, true
+	}
+}
 
 // appIcon shows an app's icon, which fades in once drawn: a tile until
 // then, and its initial if it has none.

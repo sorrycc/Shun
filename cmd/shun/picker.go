@@ -163,6 +163,10 @@ func (a *app) pickerView(c *ui.Context) {
 	})
 }
 
+// pickerChoice is the identity of the highlight of the app chosen, which
+// glides to the app chosen next.
+type pickerChoice struct{}
+
 func (a *app) pickerRow(c *ui.Context, i int) {
 	t := c.Theme()
 	l := lookOf(t)
@@ -171,10 +175,7 @@ func (a *app) pickerRow(c *ui.Context, i int) {
 	added := a.store.HasApp(app.ID)
 	row := ui.Row(c).Padding(6, 10).Gap(12).AlignItems(ui.Center).Radius(8)
 	bg := ui.Color{}
-	switch {
-	case i == p.chosen:
-		bg = t.Accent.Alpha(0.14)
-	case row.Hovered():
+	if i != p.chosen && row.Hovered() {
 		bg = l.hover
 	}
 	row.Background(row.AnimateColor("bg", bg, quick))
@@ -187,6 +188,12 @@ func (a *app) pickerRow(c *ui.Context, i int) {
 		fade = 0.55
 	}
 	row.Children(func() {
+		if i == p.chosen {
+			// The highlight glides from the row chosen before.
+			ui.Box(c.Key("chosen")).Absolute().Left(0).Top(0).Right(0).Bottom(0).Radius(8).PassThrough().
+				Background(t.Accent.Alpha(0.14)).Border(1, t.Accent.Alpha(0.2)).
+				Transition(ui.ElementTransition{Match: pickerChoice{}, Animation: &settle})
+		}
 		ui.Box(c).Opacity(fade).Children(func() {
 			a.appIcon(c, app.Path, app.Name, 32)
 		})

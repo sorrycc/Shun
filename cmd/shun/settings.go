@@ -17,6 +17,9 @@ const (
 // settingsState is the Settings window's own state.
 type settingsState struct {
 	tab int
+	// shown is the tab whose page shows, and from which the page of a tab
+	// chosen next slides in: from the right for a tab to the right.
+	shown, slide int
 
 	list     ui.ListState
 	selected int // the row chosen, or -1
@@ -88,9 +91,21 @@ func (a *app) view(c *ui.Context) {
 	t := c.Theme()
 	l := lookOf(t)
 	c.Root().Background(l.canvas)
+	if s := &a.ui; s.tab != s.shown {
+		s.slide = 1
+		if s.tab < s.shown {
+			s.slide = -1
+		}
+		s.shown = s.tab
+	}
 	ui.Column(c).Fill().Children(func() {
 		header(c, &a.ui.tab)
-		ui.Column(c.Key(a.ui.tab)).Grow(1).Transition(pageIn).Children(func() {
+		in := pageIn
+		in.Enter = &ui.Motion{X: 16 * float32(a.ui.slide)}
+		if a.ui.slide == 0 {
+			in.Enter = &ui.Motion{Y: 6}
+		}
+		ui.Column(c.Key(a.ui.tab)).Grow(1).Transition(in).Children(func() {
 			switch a.ui.tab {
 			case tabShortcuts:
 				a.shortcutsView(c)

@@ -69,16 +69,28 @@ func (a *app) generalView(c *ui.Context) {
 	})
 }
 
-// about signs the General tab: the app's name, version and what it does.
+// about signs the General tab: the app's mark, name, version and what it
+// does.
 func about(c *ui.Context) {
 	t := c.Theme()
-	ui.Column(c).Gap(3).AlignItems(ui.Center).Padding(8, 0, 0, 0).Children(func() {
+	ui.Column(c).Gap(4).AlignItems(ui.Center).Padding(10, 0, 4, 0).Children(func() {
+		mark := ui.Box(c).Size(40, 40).Radius(10).Center().Margin(0, 0, 4, 0).
+			LinearGradient(ui.LinearGradient{From: t.Accent.Mix(ui.RGB(255, 255, 255), 0.25), To: t.Accent, Angle: 180}).
+			Shadow(0, 2, 6, 0, t.Accent.Alpha(0.3))
+		pose := ui.Pose{}
+		if mark.Hovered() {
+			pose = ui.Pose{Scale: 1.08, Rotate: -4}
+		}
+		mark.AnimatePose(pose, ui.Bouncy)
+		mark.Children(func() {
+			ui.Text(c, "瞬").FontSize(20).FontWeight(700).TextColor(ui.RGB(255, 255, 255))
+		})
 		name := "Shun"
 		if v := mygo.App.Version(); v != "" {
 			name += " " + v
 		}
-		ui.Text(c, name).FontSize(11).FontWeight(600).TextColor(t.TextMuted)
-		ui.Text(c, "瞬 — switch to any app in an instant").FontSize(11).TextColor(t.TextMuted.Alpha(0.75))
+		ui.Text(c, name).FontSize(12).FontWeight(600)
+		ui.Text(c, "Switch to any app in an instant").FontSize(11).TextColor(t.TextMuted)
 	})
 }
 
@@ -189,9 +201,16 @@ func dailyChart(c *ui.Context, days [7]int) {
 		for i, n := range days {
 			day := today.AddDate(0, 0, i-len(days)+1)
 			isToday := i == len(days)-1
-			ui.Column(c.Key(i)).Grow(1).Basis(0).Gap(6).AlignItems(ui.Center).
-				Tooltip(fmt.Sprintf("%s: %d", day.Format("Monday, Jan 2"), n)).Children(func() {
-				count := ui.Text(c, fmt.Sprint(n)).FontSize(10).FontWeight(600).TextColor(t.TextMuted)
+			col := ui.Column(c.Key(i)).Grow(1).Basis(0).Gap(6).AlignItems(ui.Center).
+				Tooltip(fmt.Sprintf("%s: %d", day.Format("Monday, Jan 2"), n))
+			hovered := col.Hovered()
+			col.Children(func() {
+				countColor := t.TextMuted
+				if hovered {
+					countColor = t.Text
+				}
+				count := ui.Text(c, fmt.Sprint(n)).FontSize(10).FontWeight(600).FontFeatures("tnum").
+					TextColor(col.AnimateColor("count", countColor, quick))
 				if n == 0 {
 					count.Invisible()
 				}
@@ -204,8 +223,10 @@ func dailyChart(c *ui.Context, days [7]int) {
 						bar.Background(l.subtle)
 					case isToday:
 						bar.LinearGradient(ui.LinearGradient{From: t.Accent.Mix(ui.RGB(255, 255, 255), 0.2), To: t.Accent, Angle: 180})
+					case hovered:
+						bar.Background(bar.AnimateColor("bg", t.Accent.Alpha(0.6), quick))
 					default:
-						bar.Background(t.Accent.Alpha(0.35))
+						bar.Background(bar.AnimateColor("bg", t.Accent.Alpha(0.35), quick))
 					}
 				})
 				label := ui.Text(c, day.Format("Mon")).FontSize(10).TextColor(t.TextMuted)
@@ -221,12 +242,27 @@ func dailyChart(c *ui.Context, days [7]int) {
 func (a *app) privacyView(c *ui.Context) {
 	t := c.Theme()
 	l := lookOf(t)
+	promise := func() {
+		ui.Row(c).Gap(10).Padding(10, 12).Radius(10).Background(l.subtle).Children(func() {
+			ui.Icon(c, iconLock).FontSize(14).TextColor(t.TextMuted)
+			ui.Text(c, "We never send personal data, file contents, keystrokes, or hotkey definitions. "+
+				"Data is stored on Cloudflare under our account and auto-deleted after one year.").
+				Grow(1).Shrink(1).FontSize(11).TextColor(t.TextMuted).LineHeight(1.35)
+		})
+	}
 	page(c, func() {
 		if _, ok := telemetryConfig(); !ok {
-			section(c, "", func() {
+			section(c, "Telemetry", func() {
 				settingRow(c, iconShield, tileGray, "Telemetry is off",
-					"Telemetry is only active in packaged release builds.", func() {})
+					"Telemetry is only active in packaged release builds.", func() {
+						statusPill(c, "Off", t.TextMuted)
+					})
 			})
+			section(c, "On This Mac", func() {
+				settingRow(c, iconLock, tileGreen, "Your shortcuts stay local",
+					"Shortcuts, settings and usage counts are kept in ~/Library/Application Support/Shun.", func() {})
+			})
+			promise()
 			return
 		}
 		section(c, "Telemetry", func() {
@@ -242,12 +278,7 @@ func (a *app) privacyView(c *ui.Context) {
 				a.prefs.SetUsageStatsEnabled(on)
 			}
 		})
-		ui.Row(c).Gap(10).Padding(10, 12).Radius(10).Background(l.subtle).Children(func() {
-			ui.Icon(c, iconLock).FontSize(14).TextColor(t.TextMuted)
-			ui.Text(c, "We never send personal data, file contents, keystrokes, or hotkey definitions. "+
-				"Data is stored on Cloudflare under our account and auto-deleted after one year.").
-				Grow(1).Shrink(1).FontSize(11).TextColor(t.TextMuted).LineHeight(1.35)
-		})
+		promise()
 		section(c, "Identifier", func() {
 			settingRow(c, iconHash, tileGray, "Anonymous ID", "Ties pings and crash reports together, and nothing else.", func() {
 				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {

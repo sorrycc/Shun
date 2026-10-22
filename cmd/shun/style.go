@@ -21,7 +21,9 @@ var (
 var (
 	quick  = ui.Animation{Duration: 140 * time.Millisecond, Ease: ui.EaseOut}
 	settle = ui.Animation{Spring: ui.SpringOptions{Duration: 380 * time.Millisecond}}
-	pageIn = ui.ElementTransition{Duration: 220 * time.Millisecond, Enter: &ui.Motion{Y: 6}}
+	press  = ui.Animation{Spring: ui.SpringOptions{Duration: 220 * time.Millisecond}}
+	// pageIn brings a page in, decelerating as macOS's own transitions.
+	pageIn = ui.ElementTransition{Duration: 260 * time.Millisecond, Ease: ui.CubicBezier(0.2, 0.8, 0.2, 1)}
 )
 
 // look is the palette of Settings, made from the theme: pages a shade off
@@ -93,6 +95,11 @@ func header(c *ui.Context, selected *int) {
 					hover = l.hover
 				}
 				el.Background(el.AnimateColor("hover", hover, quick))
+				pose := ui.Pose{}
+				if el.Pressed() {
+					pose.Scale = 0.95
+				}
+				el.AnimatePose(pose, press)
 				fg := t.TextMuted
 				if on {
 					fg = t.Accent
@@ -100,7 +107,7 @@ func header(c *ui.Context, selected *int) {
 				fg = el.AnimateColor("fg", fg, quick)
 				el.Children(func() {
 					if on {
-						ui.Box(c.Key("pill")).Absolute().Left(0).Top(0).Right(0).Bottom(0).Radius(8).
+						ui.Box(c.Key("pill")).Absolute().Left(0).Top(0).Right(0).Bottom(0).Radius(8).PassThrough().
 							Background(t.Accent.Alpha(0.12)).
 							Transition(ui.ElementTransition{Match: tabPill{}, Animation: &settle})
 					}
@@ -150,4 +157,34 @@ func statusPill(c *ui.Context, text string, color ui.Color) {
 			ui.Box(c).Size(6, 6).Radius(3).Background(color)
 			ui.Text(c, text).FontSize(11).FontWeight(600).TextColor(color).SingleLine()
 		})
+}
+
+// toolGroup joins buttons of a toolbar in one bordered capsule, as the
+// + and - under a list in System Settings.
+func toolGroup(c *ui.Context, fn func()) {
+	l := lookOf(c.Theme())
+	ui.Row(c).AlignItems(ui.Center).Radius(6).Background(l.card).Border(1, l.cardBorder).
+		Shadow(0, 1, 1, 0, ui.RGBA(0, 0, 0, 0.04)).Clip().Children(fn)
+}
+
+// toolButton is an icon button of a toolGroup, which darkens as the
+// pointer is over it and presses in; it reports a click.
+func toolButton(c *ui.Context, icon *ui.SVG, label string, disabled bool) bool {
+	t := c.Theme()
+	l := lookOf(t)
+	b := ui.ButtonBase(c.Key(label)).Label(label).Tooltip(label).Disabled(disabled).Size(30, 24).Center()
+	bg, fg := ui.Color{}, t.Text
+	switch {
+	case disabled:
+		fg = t.TextMuted.Alpha(0.45)
+	case b.Pressed():
+		bg = l.subtle.Over(l.hover)
+	case b.Hovered():
+		bg = l.hover
+	}
+	b.Background(b.AnimateColor("bg", bg, quick))
+	b.Children(func() {
+		ui.Icon(c, icon).FontSize(14).TextColor(b.AnimateColor("fg", fg, quick))
+	})
+	return b.Clicked()
 }

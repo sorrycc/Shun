@@ -25,6 +25,7 @@ func newTestApp(t *testing.T) *app {
 	s.AppExists = func(p string) bool { return p != "/Applications/Gone.app" }
 	p, _ := store.OpenPrefs(dir)
 	a := &app{store: s, prefs: p, usage: usage.Open(dir), icons: newIconCache()}
+	t.Cleanup(a.usage.SaveNow) // before dir goes, rather than as it goes
 	a.icons.draw = func(string) *ui.Bitmap { return nil }
 	a.ui.init()
 	iterm := store.NewShortcut("/Applications/iTerm.app", "com.googlecode.iterm2", "iTerm2")

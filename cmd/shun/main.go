@@ -194,7 +194,11 @@ func (a *app) window() *mygo.Window {
 	a.icons.post = a.win.Update
 	a.win.OnHide(func() {
 		a.ui.reset()
-		a.icons.clear() // apps may change while it is hidden
+		keep := make([]string, len(a.store.Shortcuts))
+		for i, sc := range a.store.Shortcuts {
+			keep[i] = sc.Path()
+		}
+		a.icons.clear(keep) // all but the shortcuts' icons, which show at once next time
 	})
 	return a.win
 }

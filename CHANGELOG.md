@@ -14,6 +14,10 @@ Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The app picker ranks names that start with what you type first, and shows keyboard hints.
 - App icons load in the background, so lists scroll smoothly, and usage counts no longer scan the whole history on every redraw.
 - ⌘1–⌘4 switch between the Settings tabs.
+- **Shortcuts** sits in a card like the other tabs. The selected shortcut gets a soft highlight instead of a solid blue bar, rows highlight on hover and show a drag handle, and the toolbar groups its buttons and shows a status dot.
+- Pages slide in from the direction of the tab you choose. The app picker's highlight glides between results, and the bars of the 7-day chart highlight on hover.
+- **General** ends with Shun's mark and version. **Privacy** explains what stays on your Mac even when telemetry is off.
+- Reopening Settings shows your apps' icons at once instead of loading them again.
 
 ## 1.1.0
 - Shun is rewritten in Go with a native UI drawn by MyGo: one small binary that uses less memory while it waits in the menu bar. Your shortcuts, their keys, the **Enabled** switch, usage history and privacy choices carry over, and you can still go back to an earlier version.
