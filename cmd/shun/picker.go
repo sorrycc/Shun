@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"math"
 	"strings"
 	"time"
 
@@ -23,6 +24,10 @@ type picker struct {
 	chosen   int
 	list     ui.ListState
 	input    ui.Handle
+	// nudges counts the tries to add an app that has a shortcut already,
+	// the one at nudged, whose badge shakes.
+	nudges uint64
+	nudged string
 }
 
 // appsTTL is how long the list of installed apps is kept.
@@ -62,6 +67,7 @@ func (a *app) filterApps() {
 		}
 	}
 	q := strings.ToLower(strings.TrimSpace(p.query))
+	word := " " + q // a word of a name starting with the query
 	p.results = p.results[:0]
 	var later [2][]mygo.InstalledApp
 	for i, app := range p.apps {
@@ -69,7 +75,7 @@ func (a *app) filterApps() {
 		switch {
 		case q == "" || strings.HasPrefix(name, q):
 			p.results = append(p.results, app)
-		case strings.Contains(name, " "+q):
+		case strings.Contains(name, word):
 			later[0] = append(later[0], app)
 		case strings.Contains(name, q):
 			later[1] = append(later[1], app)
@@ -95,6 +101,8 @@ func (a *app) addChosen() {
 	}
 	app := p.results[p.chosen]
 	if a.store.HasApp(app.ID) {
+		p.nudges++
+		p.nudged = app.Path
 		return
 	}
 	a.added(store.NewShortcut(app.Path, app.ID, app.Name))
@@ -113,7 +121,13 @@ func (a *app) pickerView(c *ui.Context) {
 	_, h := c.Size()
 	ui.Column(c).Size(460, min(500, h-48)).Children(func() {
 		ui.Row(c).Padding(12, 14, 12, 16).Gap(10).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, iconSearch).FontSize(17).TextColor(t.TextMuted)
+			glass := ui.Icon(c, iconSearch).FontSize(17)
+			typed := p.query != ""
+			if typed {
+				glass.TextColor(glass.AnimateColor("fg", t.Accent, quick))
+			} else {
+				glass.TextColor(glass.AnimateColor("fg", t.TextMuted, quick))
+			}
 			search := ui.TextInputBase(c, &p.query).Bind(&p.input).Grow(1).FontSize(15).
 				Label("Search applications").Placeholder("Search applications…")
 			if search.Changed() {
@@ -122,6 +136,23 @@ func (a *app) pickerView(c *ui.Context) {
 			if search.Submitted() {
 				a.addChosen()
 			}
+			if typed {
+				x := ui.ButtonBase(c.Key("clear")).Label("Clear Search").Size(18, 18).Radius(9).Center().
+					Transition(ui.ElementTransition{Duration: 140 * time.Millisecond, Enter: &ui.Motion{Scale: 0.6},
+						Exit: &ui.Motion{Scale: 0.6}})
+				bg := t.Text.Alpha(0.12)
+				if x.Hovered() {
+					bg = t.Text.Alpha(0.2)
+				}
+				x.Background(x.AnimateColor("bg", bg, quick)).Children(func() {
+					ui.Icon(c, iconClose).FontSize(10).TextColor(t.TextMuted)
+				})
+				if x.Clicked() {
+					p.query = ""
+					a.filterApps()
+					p.input.Focus()
+				}
+			}
 			if ui.Button(c, "Done").Clicked() {
 				a.ui.picking = false
 			}
@@ -129,10 +160,7 @@ func (a *app) pickerView(c *ui.Context) {
 		ui.Box(c).Height(1).Background(l.cardBorder)
 		switch {
 		case p.loading && len(p.apps) == 0:
-			ui.Column(c).Grow(1).Center().Gap(10).Children(func() {
-				ui.Spinner(c)
-				ui.Text(c, "Scanning applications…").TextColor(t.TextMuted)
-			})
+			pickerSkeleton(c)
 		case len(p.results) == 0:
 			ui.Column(c).Grow(1).Center().Gap(6).Children(func() {
 				ui.Icon(c, iconSearch).FontSize(28).TextColor(t.TextMuted.Alpha(0.6))
@@ -202,10 +230,39 @@ func (a *app) pickerRow(c *ui.Context, i int) {
 			ui.Text(c, app.ID).FontSize(11).TextColor(t.TextMuted).SingleLine()
 		})
 		if added {
-			ui.Row(c.Key("added")).Gap(4).AlignItems(ui.Center).
-				Transition(ui.ElementTransition{Duration: 260 * time.Millisecond, Enter: &ui.Motion{Scale: 0.6}}).Children(func() {
+			badge := ui.Row(c.Key("added")).Gap(4).AlignItems(ui.Center).
+				Transition(ui.ElementTransition{Duration: 260 * time.Millisecond, Enter: &ui.Motion{Scale: 0.6}})
+			if p.nudges > 0 && p.nudged == app.Path {
+				// Added before: the badge shakes, to tell why nothing happens.
+				x := badge.Keyframes("nudge", []ui.Keyframe{{At: 0, Value: 0}, {At: 50 * time.Millisecond, Value: -4},
+					{At: 110 * time.Millisecond, Value: 3}, {At: 170 * time.Millisecond, Value: -2},
+					{At: 240 * time.Millisecond, Value: 0, Ease: ui.EaseOut}}, ui.KeyframeOptions{Run: p.nudges})
+				badge.Translate(x, 0)
+			}
+			badge.Children(func() {
 				ui.Icon(c, iconCheck).FontSize(15).TextColor(t.Success)
 				ui.Text(c, "Added").FontSize(11).FontWeight(600).TextColor(t.Success)
+			})
+		}
+	})
+}
+
+// pickerSkeleton stands for the list while the apps are scanned: rows of
+// placeholders, which shimmer.
+func pickerSkeleton(c *ui.Context) {
+	l := lookOf(c.Theme())
+	col := ui.Column(c).Grow(1).Padding(6, 8).Gap(1).Label("Scanning applications…")
+	phase := loop(c, col, "shimmer", 1400*time.Millisecond, ui.Linear, 0)
+	col.Children(func() {
+		for i := range 7 {
+			// Each row a little after the one above, as a wave down the list.
+			k := 0.5 + 0.5*float32(math.Cos(2*math.Pi*float64(phase-float32(i)*0.1)))
+			ui.Row(c.Key(i)).Padding(6, 10).Gap(12).AlignItems(ui.Center).Opacity(0.5 + 0.5*k).Children(func() {
+				ui.Box(c).Size(32, 32).Radius(8).Background(l.subtle)
+				ui.Column(c).Gap(5).Children(func() {
+					ui.Box(c).Size(float32(110+(i*37)%90), 10).Radius(4).Background(l.subtle)
+					ui.Box(c).Size(float32(150+(i*53)%70), 8).Radius(4).Background(l.subtle.Alpha(0.6))
+				})
 			})
 		}
 	})

@@ -92,7 +92,13 @@ func TestRecordShortcut(t *testing.T) {
 	}
 	shot(t, tt, "recording")
 	tt.HoldModifiers(0)
-	tt.Key(0, ui.KeyK) // no modifier: still waiting
+	if !tt.HasText("Press keys with ⌘ ⌥ ⌃ or ⇧ · esc cancels") || tt.HasText("No shortcut") {
+		t.Errorf("no hint while recording: %q", tt.Texts())
+	}
+	tt.Key(0, ui.KeyK) // no modifier: still waiting, and it shakes
+	if a.ui.recording != safari.ID {
+		t.Error("stopped recording on a key without a modifier")
+	}
 	tt.Key(ui.Alt, ui.KeyC)
 	sc, _ := a.store.Get(safari.ID)
 	if sc.Combo == nil || *sc.Combo != (keys.Combo{KeyCode: 8, Modifiers: keys.CarbonOption}) {
@@ -251,9 +257,53 @@ func TestPicker(t *testing.T) {
 	if !a.store.HasApp("com.apple.calculator") {
 		t.Error("a click adds")
 	}
+	tt.Key(0, ui.KeyEnter) // Calculator again: it has a shortcut, and its badge shakes
+	if p.nudges != 1 || p.nudged != "/System/Applications/Calculator.app" || len(a.store.Shortcuts) != 5 {
+		t.Errorf("nudges %d of %q, %d shortcuts", p.nudges, p.nudged, len(a.store.Shortcuts))
+	}
+	if err := tt.Click("Clear Search"); err != nil {
+		t.Fatal(err)
+	}
+	if p.query != "" || !tt.HasText("Safari") {
+		t.Errorf("query %q, texts %q", p.query, tt.Texts())
+	}
 	tt.Click("Done")
 	if a.ui.picking {
 		t.Error("closed")
+	}
+}
+
+func TestPickerScanning(t *testing.T) {
+	a := newTestApp(t)
+	a.ui.picking, a.ui.picker.loading = true, true
+	tt := ui.NewTester(a.view, 600, 520)
+	if _, ok := tt.Find("Scanning applications…"); !ok {
+		t.Errorf("no placeholder rows: %q", tt.Texts())
+	}
+	shot(t, tt, "scanning")
+}
+
+func TestRowContextMenu(t *testing.T) {
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 600, 520)
+	if err := tt.RightClick("iTerm2"); err != nil {
+		t.Fatal(err)
+	}
+	if got := tt.Menu(); !slices.Contains(got, "Turn Off") || !slices.Contains(got, "Clear Shortcut") {
+		t.Fatalf("menu %q", got)
+	}
+	if err := tt.ChooseMenuItem("Turn Off"); err != nil {
+		t.Fatal(err)
+	}
+	if a.store.Shortcuts[0].IsEnabled {
+		t.Error("iTerm2 is on")
+	}
+	tt.RightClick("iTerm2")
+	if err := tt.ChooseMenuItem("Clear Shortcut"); err != nil {
+		t.Fatal(err)
+	}
+	if a.store.Shortcuts[0].Combo != nil {
+		t.Error("iTerm2 keeps its keys")
 	}
 }
 
@@ -290,6 +340,14 @@ func TestPerDay(t *testing.T) {
 			t.Errorf("perDay(%v) = %q, want %q", n, got, want)
 		}
 	}
+	for _, c := range []struct {
+		today, avg float32
+		want       string
+	}{{2, 0.3, "1.7 above average"}, {0, 2, "2 below average"}, {1, 1.02, "on average"}} {
+		if got := againstAverage(c.today, c.avg); got != c.want {
+			t.Errorf("againstAverage(%v, %v) = %q, want %q", c.today, c.avg, got, c.want)
+		}
+	}
 }
 
 func TestTrayItems(t *testing.T) {
@@ -314,5 +372,21 @@ func TestTrayItems(t *testing.T) {
 	a.prefs.SetGlobalEnabled(false)
 	if _, acc := labels(); acc["iTerm2"] != "" {
 		t.Error("paused shortcuts show their keys")
+	}
+}
+
+// TestReduceMotionRests checks that, with less motion asked, a recorder
+// waiting for keys draws no frames of its own.
+func TestReduceMotionRests(t *testing.T) {
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 600, 520)
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	tt.Click("Record Shortcut")
+	tt.Advance(time.Second)
+	if tt.FramePending() {
+		t.Error("frames drawn while the recorder waits")
+	}
+	if a.ui.recording == "" {
+		t.Error("not recording")
 	}
 }

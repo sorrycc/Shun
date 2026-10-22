@@ -35,9 +35,10 @@ func (a *app) shortcutsView(c *ui.Context) {
 	root.Children(func() {
 		if len(a.store.Shortcuts) == 0 {
 			emptyState(c, iconKeyboard, "No shortcuts yet",
-				"Give an app a shortcut to bring it forward from anywhere, and press it again to hide it. "+
-					"Add an app, or drag apps here from Finder.",
+				"Give an app a shortcut to bring it forward from anywhere. Add an app, or drag apps here from Finder.",
 				func() {
+					shortcutExample(c)
+					ui.Box(c).Height(4)
 					if ui.PrimaryButton(c, "Add App…").Clicked() {
 						a.openPicker()
 					}
@@ -53,6 +54,21 @@ func (a *app) shortcutsView(c *ui.Context) {
 
 	ui.Modal(c, &s.picking, func() { a.pickerView(c) }).Padding(0).Gap(0).Radius(12).
 		Transition(ui.ElementTransition{Duration: 180 * time.Millisecond, Enter: &ui.Motion{Scale: 0.96}})
+}
+
+// shortcutExample shows what a shortcut does, as keys that bring an app
+// forward and hide it again.
+func shortcutExample(c *ui.Context) {
+	t := c.Theme()
+	l := lookOf(t)
+	ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(6, 12).Radius(999).Background(l.subtle.Alpha(0.6)).
+		Children(func() {
+			keycaps(c, []string{"⌥", "S"}, t.Text)
+			ui.Icon(c, iconArrowRight).FontSize(12).TextColor(t.TextMuted)
+			ui.Text(c, "Safari").FontSize(12).FontWeight(500)
+			ui.Text(c, "·").FontSize(12).TextColor(t.TextMuted)
+			ui.Text(c, "again to hide it").FontSize(12).TextColor(t.TextMuted)
+		})
 }
 
 // dropOverlay tells, over the tab, that apps dragged over it are added.
@@ -86,8 +102,10 @@ func (a *app) shortcutCard(c *ui.Context) {
 				"Grant Shun the Accessibility permission; until then, shortcuts are slower.", "Open Settings…",
 				func() { mygo.Shell.OpenExternal(accessibilitySettings) })
 		}
-		ui.Row(c).PaddingX(4).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).PaddingX(4).Gap(6).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, "Apps").FontSize(12).FontWeight(600).TextColor(t.TextMuted)
+			ui.Textf(c, "%d", len(a.store.Shortcuts)).FontSize(10).FontWeight(600).FontFeatures("tnum").
+				TextColor(t.TextMuted).Padding(0, 6).Radius(999).Background(l.subtle)
 			ui.Spacer(c)
 			ui.Text(c, "Click a shortcut to record keys · drag to reorder").FontSize(11).
 				TextColor(t.TextMuted.Alpha(0.8)).SingleLine()
@@ -157,6 +175,17 @@ func (a *app) shortcutRow(c *ui.Context, i int) {
 	}
 	row.Background(bg).Border(1, row.AnimateColor("ring", ring, quick))
 	row.ContextMenu(func(m *ui.Menu) {
+		toggle := "Turn Off"
+		if !sc.IsEnabled {
+			toggle = "Turn On"
+		}
+		if m.Item(toggle).Chosen() {
+			a.store.SetEnabled(sc.ID, !sc.IsEnabled)
+		}
+		if m.Item("Clear Shortcut").Disabled(sc.Combo == nil).Chosen() {
+			a.setCombo(sc.ID, nil)
+		}
+		m.Separator()
 		if m.Item("Show in Finder").Disabled(sc.Stale).Chosen() {
 			mygo.Shell.ShowItemInFolder(sc.Path())
 		}
@@ -188,6 +217,12 @@ func (a *app) shortcutRow(c *ui.Context, i int) {
 		ui.Column(c).Grow(1).Shrink(1).Gap(2).Opacity(max(fade, 0.7)).Children(func() {
 			ui.Text(c, sc.DisplayName).FontWeight(500).TextColor(name).SingleLine()
 			switch n := a.usage.Count(sc.BundleIdentifier); {
+			case a.ui.recording == sc.ID:
+				// How to record, in place of what the row says, while its
+				// recorder listens.
+				ui.Text(c.Key("hint"), "Press keys with ⌘ ⌥ ⌃ or ⇧ · esc cancels").FontSize(11).
+					TextColor(t.Accent).SingleLine().
+					Transition(ui.ElementTransition{Duration: 160 * time.Millisecond, Enter: &ui.Motion{Y: 3}})
 			case sc.Stale:
 				ui.Row(c).Gap(4).AlignItems(ui.Center).Tooltip("App not found at " + sc.Path()).Children(func() {
 					ui.Icon(c, iconWarning).FontSize(11).TextColor(warning)

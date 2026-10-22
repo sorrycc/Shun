@@ -23,6 +23,8 @@ type settingsState struct {
 
 	list     ui.ListState
 	selected int // the row chosen, or -1
+	// recording is the ID of the shortcut whose recorder takes keys.
+	recording string
 
 	// The app picker.
 	picking bool
@@ -62,7 +64,7 @@ func (s *settingsState) init() {
 
 // reset forgets what was under way as the window hides.
 func (s *settingsState) reset() {
-	s.picking, s.alertOpen = false, false
+	s.picking, s.alertOpen, s.recording = false, false, ""
 	s.confirmClear, s.confirmReset = false, false
 }
 

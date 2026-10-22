@@ -9,6 +9,8 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/updater"
 	"github.com/egoist/mygo/ui"
+
+	"shun/internal/store"
 )
 
 // generalView is the General tab: login, all shortcuts, the Accessibility
@@ -122,7 +124,7 @@ func (a *app) insightsView(c *ui.Context) {
 		ui.Row(c).Gap(12).Children(func() {
 			statTile(c, iconBolt, tileOrange, "Switches", total, "past 7 days", 0)
 			statTile(c, iconActivity, tileBlue, "Today", days[len(days)-1],
-				perDay(float32(total)/float32(len(days)))+" a day on average", 60*time.Millisecond)
+				againstAverage(float32(days[len(days)-1]), float32(total)/float32(len(days))), 60*time.Millisecond)
 			statTile(c, iconLayers, tilePurple, "Apps", a.usage.Apps(), "switched to", 120*time.Millisecond)
 		})
 		section(c, "Last 7 Days", func() {
@@ -130,15 +132,24 @@ func (a *app) insightsView(c *ui.Context) {
 		})
 		section(c, "Most Used", func() {
 			most := float32(top[0].Count)
+			byID := make(map[string]*store.Shortcut, len(a.store.Shortcuts))
+			for i := range a.store.Shortcuts {
+				sc := &a.store.Shortcuts[i]
+				if _, ok := byID[sc.BundleIdentifier]; !ok {
+					byID[sc.BundleIdentifier] = sc
+				}
+			}
 			for i, e := range top {
 				name, path := e.BundleIdentifier, ""
-				for _, sc := range a.store.Shortcuts {
-					if sc.BundleIdentifier == e.BundleIdentifier {
-						name, path = sc.DisplayName, sc.Path()
-						break
-					}
+				if sc, ok := byID[e.BundleIdentifier]; ok {
+					name, path = sc.DisplayName, sc.Path()
 				}
-				ui.Row(c.Key(e.BundleIdentifier)).Gap(10).AlignItems(ui.Center).Children(func() {
+				row := ui.Row(c.Key(e.BundleIdentifier)).Gap(10).AlignItems(ui.Center).Padding(3, 6).Margin(-3, -6).Radius(6)
+				hover := ui.Color{}
+				if row.Hovered() {
+					hover = l.hover
+				}
+				row.Background(row.AnimateColor("hover", hover, quick)).Children(func() {
 					rank := ui.Textf(c, "%d", i+1).FontSize(11).FontWeight(600).Width(14).TextAlign(ui.End)
 					rank.TextColor(t.TextMuted)
 					if i == 0 {
@@ -155,7 +166,9 @@ func (a *app) insightsView(c *ui.Context) {
 						fill.WidthPercent(grow(fill, "w", float32(e.Count)*100/most, time.Duration(i)*35*time.Millisecond))
 						fill.LinearGradient(ui.LinearGradient{From: t.Accent.Alpha(0.55), To: t.Accent, Angle: 90})
 					})
-					ui.Textf(c, "%d", e.Count).FontSize(11).FontWeight(500).TextColor(t.TextMuted).Width(32).TextAlign(ui.End)
+					ui.Textf(c, "%d", e.Count).FontSize(11).FontWeight(600).FontFeatures("tnum").Width(32).TextAlign(ui.End)
+					ui.Textf(c, "%.0f%%", float32(e.Count)*100/float32(total)).FontSize(11).FontFeatures("tnum").
+						TextColor(t.TextMuted).Width(34).TextAlign(ui.End)
 				})
 			}
 		})
@@ -177,6 +190,17 @@ func perDay(n float32) string {
 		return fmt.Sprintf("%.0f", n)
 	}
 	return strings.TrimSuffix(fmt.Sprintf("%.1f", n), ".0")
+}
+
+// againstAverage says how today compares with the daily average.
+func againstAverage(today, avg float32) string {
+	switch d := today - avg; {
+	case d >= 0.05:
+		return perDay(d) + " above average"
+	case d <= -0.05:
+		return perDay(-d) + " below average"
+	}
+	return "on average"
 }
 
 // statTile is a number of the Insights tab, which counts up as it shows.
@@ -212,6 +236,12 @@ func dailyChart(c *ui.Context, days [7]int) {
 	}
 	avg := float32(total) / float32(len(days)) * height / float32(most)
 	today := time.Now()
+	ui.Row(c).Gap(6).AlignItems(ui.Center).Justify(ui.End).Children(func() {
+		ui.Box(c).Width(12).Height(1).Background(t.Text.Alpha(0.3))
+		ui.Text(c, "Daily average "+perDay(float32(total)/float32(len(days)))).FontSize(10).TextColor(t.TextMuted)
+		ui.Box(c).Size(8, 8).Radius(2).Margin(0, 0, 0, 6).Background(t.Accent)
+		ui.Text(c, "Today").FontSize(10).TextColor(t.TextMuted)
+	})
 	// The columns touch, which keeps the average line through them whole.
 	ui.Row(c).AlignItems(ui.End).Children(func() {
 		for i, n := range days {
@@ -234,7 +264,14 @@ func dailyChart(c *ui.Context, days [7]int) {
 					line := ui.Box(c.Key("avg")).Absolute().Left(0).Right(0).Height(1).PassThrough().
 						Background(t.Text.Alpha(0.14))
 					line.Bottom(grow(line, "y", avg, 0))
-					bar := ui.Box(c).Width(22).Radius(5)
+					// Rounded at the top, as it rises from the axis; a bar the
+					// pointer is over widens a little.
+					bar := ui.Box(c).Radius(5, 5, 2, 2)
+					width := float32(22)
+					if hovered && n > 0 {
+						width = 26
+					}
+					bar.Width(bar.AnimateTo("w", width, press))
 					h := grow(bar, "h", float32(n)*height/float32(most), time.Duration(i)*40*time.Millisecond)
 					bar.Height(max(h, 3))
 					switch {

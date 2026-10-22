@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -25,6 +26,16 @@ var (
 	// pageIn brings a page in, decelerating as macOS's own transitions.
 	pageIn = ui.ElementTransition{Duration: 260 * time.Millisecond, Ease: ui.CubicBezier(0.2, 0.8, 0.2, 1)}
 )
+
+// loop is e's Loop, which runs on every frame for as long as it shows; it
+// rests at still where the user asks for less motion, which Loop does not
+// heed, and draws no frames then.
+func loop(c *ui.Context, e ui.Element, key any, period time.Duration, ease ui.Easing, still float32) float32 {
+	if c.Preferences().ReduceMotion {
+		return still
+	}
+	return e.Loop(key, period, ease)
+}
 
 // look is the palette of Settings, made from the theme: pages a shade off
 // the window's color, and cards on them, as System Settings has them.
@@ -91,7 +102,8 @@ func header(c *ui.Context, selected *int) {
 		tabs.List.Gap(2).AlignSelf(ui.Center).Children(func() {
 			for i, tab := range settingsTabs {
 				on := i == *selected
-				el := tabs.Tab(i).Width(76).Padding(6, 4, 5, 4).Radius(8).Cursor(ui.CursorPointer).Label(tab.name)
+				el := tabs.Tab(i).Width(76).Padding(6, 4, 5, 4).Radius(8).Cursor(ui.CursorPointer).Label(tab.name).
+					Tooltip(fmt.Sprintf("%s  ⌘%d", tab.name, i+1))
 				hover := ui.Color{}
 				if !on && el.Hovered() {
 					hover = l.hover

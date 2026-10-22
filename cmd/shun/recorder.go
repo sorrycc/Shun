@@ -70,37 +70,47 @@ func carbonMods(m ui.Modifiers) int {
 
 // recorder shows a shortcut's keys and records new ones: click it, then
 // press the keys, with a modifier. Escape cancels, Delete clears. While it
-// records, it shows the modifiers held; a combo recorded pops.
+// records, it shows the modifiers held; a combo recorded pops, and a key
+// pressed without a modifier shakes it, as a wrong password does.
 func (a *app) recorder(c *ui.Context, id string, combo *keys.Combo) {
 	t := c.Theme()
 	l := lookOf(t)
 	box := ui.Box(c.Key("recorder-"+id)).Focusable().Width(150).Height(28).Padding(0, 8).Radius(7).
 		Cursor(ui.CursorPointer).FocusRing(false)
-	recording := ui.Local(box, "recording", func() bool { return false })
+	recording := a.ui.recording == id
 	pops := ui.Local(box, "pops", func() uint64 { return 0 })
+	shakes := ui.Local(box, "shakes", func() uint64 { return 0 })
+	stop := func() { recording, a.ui.recording = false, "" }
 	if box.Clicked() {
-		*recording = !*recording
+		if recording = !recording; recording {
+			a.ui.recording = id
+		} else {
+			stop()
+		}
 	}
-	if *recording && !box.Focused() {
-		*recording = false // the user went elsewhere
+	if recording && !box.Focused() {
+		stop() // the user went elsewhere
 	}
-	if *recording {
+	if recording {
 		box.HandleInput(func(ev ui.InputEvent) bool {
 			if ev.Kind != ui.InputKeyDown {
 				return false
 			}
 			switch {
 			case ev.Mods == 0 && ev.Key == ui.KeyEscape:
-				*recording = false
+				stop()
 			case ev.Mods == 0 && (ev.Key == ui.KeyBackspace || ev.Key == ui.KeyDelete):
-				*recording = false
+				stop()
 				a.setCombo(id, nil)
 			default:
 				combo, ok := comboOf(ev)
 				if !ok {
+					if ev.Mods == 0 && !ev.Repeat {
+						*shakes++ // a key without a modifier
+					}
 					return true // waits for a key with a modifier
 				}
-				*recording = false
+				stop()
 				*pops++
 				a.setCombo(id, &combo)
 			}
@@ -115,15 +125,15 @@ func (a *app) recorder(c *ui.Context, id string, combo *keys.Combo) {
 		border, bg = l.cardBorder.Mix(t.Text.Alpha(0.2), 0.5), t.Text.Alpha(0)
 	}
 	switch {
-	case *recording:
+	case recording:
 		// The border breathes while it waits for the keys.
-		pulse := box.Loop("pulse", 1200*time.Millisecond, ui.Bounce(ui.EaseInOut))
+		pulse := loop(c, box, "pulse", 1200*time.Millisecond, ui.Bounce(ui.EaseInOut), 1)
 		border, bg = t.Accent.Alpha(0.55+0.45*pulse), t.Accent.Alpha(0.08)
 	case box.Hovered():
 		border, bg = t.Text.Alpha(0.22), bg.Over(t.Text.Alpha(0.02))
 	}
 	box.Border(1.5, box.AnimateColor("border", border, quick)).Background(box.AnimateColor("bg", bg, quick))
-	if combo == nil && !*recording {
+	if combo == nil && !recording {
 		box.BorderStyle(ui.BorderDashed)
 	}
 	if *pops > 0 {
@@ -131,11 +141,18 @@ func (a *app) recorder(c *ui.Context, id string, combo *keys.Combo) {
 			{At: 320 * time.Millisecond, Value: 1, Ease: ui.EaseInOut}}, ui.KeyframeOptions{Run: *pops})
 		box.Scale(s, s)
 	}
+	if *shakes > 0 {
+		x := box.Keyframes("shake", []ui.Keyframe{{At: 0, Value: 0}, {At: 50 * time.Millisecond, Value: -5},
+			{At: 110 * time.Millisecond, Value: 4}, {At: 170 * time.Millisecond, Value: -3},
+			{At: 230 * time.Millisecond, Value: 1.5}, {At: 300 * time.Millisecond, Value: 0, Ease: ui.EaseOut}},
+			ui.KeyframeOptions{Run: *shakes})
+		box.Translate(x, 0)
+	}
 
 	box.Label("Shortcut").Children(func() {
 		ui.Row(c).Grow(1).Gap(4).AlignItems(ui.Center).Justify(ui.Center).Children(func() {
 			switch {
-			case *recording:
+			case recording:
 				if held := keys.ModifierSymbols(carbonMods(c.Modifiers())); len(held) > 0 {
 					keycaps(c, held, t.Accent)
 				} else {
@@ -147,7 +164,7 @@ func (a *app) recorder(c *ui.Context, id string, combo *keys.Combo) {
 				ui.Text(c, "Record Shortcut").FontSize(12).TextColor(t.TextMuted).SingleLine()
 			}
 		})
-		if combo != nil && !*recording {
+		if combo != nil && !recording {
 			clearBtn := ui.ButtonBase(c.Key("clear-"+id)).Label("Clear Shortcut").Absolute().Right(6).Top(6).
 				Size(16, 16).Radius(8).Center()
 			show := float32(0)

@@ -38,10 +38,20 @@ type eventJSON struct {
 
 // Store holds the events. It is safe to use from any goroutine.
 type Store struct {
-	mu       sync.Mutex
-	path     string
-	events   []Event
-	counts   map[string]int // the events of each app
+	mu     sync.Mutex
+	path   string
+	events []Event
+	counts map[string]int // the events of each app
+	// rev counts the changes of the events, which the Insights tab's
+	// numbers, asked on every frame it draws, are kept for.
+	rev    uint64
+	top    []AppCount // all apps, most first, as of topRev
+	topRev uint64
+	daily  struct {
+		rev   uint64
+		today time.Time
+		days  [7]int
+	}
 	timer    *time.Timer
 	onChange func()
 	now      func() time.Time
@@ -104,6 +114,7 @@ func (s *Store) Log(bundleID string) {
 	}
 	s.events = append(s.events, Event{Timestamp: now, BundleIdentifier: bundleID})
 	s.counts[bundleID]++
+	s.rev++
 	s.scheduleSave()
 	fn := s.onChange
 	s.mu.Unlock()
@@ -142,28 +153,33 @@ type AppCount struct {
 // Top returns the apps activated most, most first.
 func (s *Store) Top(limit int) []AppCount {
 	s.mu.Lock()
-	top := make([]AppCount, 0, len(s.counts))
-	for id, n := range s.counts {
-		top = append(top, AppCount{id, n})
+	defer s.mu.Unlock()
+	if s.top == nil || s.topRev != s.rev {
+		s.top = make([]AppCount, 0, len(s.counts))
+		for id, n := range s.counts {
+			s.top = append(s.top, AppCount{id, n})
+		}
+		slices.SortFunc(s.top, func(a, b AppCount) int {
+			return cmp.Or(cmp.Compare(b.Count, a.Count), cmp.Compare(a.BundleIdentifier, b.BundleIdentifier))
+		})
+		s.topRev = s.rev
 	}
-	s.mu.Unlock()
-	slices.SortFunc(top, func(a, b AppCount) int {
-		return cmp.Or(cmp.Compare(b.Count, a.Count), cmp.Compare(a.BundleIdentifier, b.BundleIdentifier))
-	})
-	if len(top) > limit {
-		top = top[:limit]
-	}
-	return top
+	return slices.Clone(s.top[:min(limit, len(s.top))])
 }
 
 // Daily returns the activations of each of the last 7 days, by the local
-// calendar, today last.
+// calendar, today last. They are counted again only after a change, or
+// on a new day.
 func (s *Store) Daily() [7]int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var days [7]int
 	now := s.now()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	d := &s.daily
+	if d.rev == s.rev && d.today.Equal(today) {
+		return d.days
+	}
+	var days [7]int
 	for _, e := range s.events {
 		t := e.Timestamp.In(now.Location())
 		day := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, now.Location())
@@ -173,6 +189,7 @@ func (s *Store) Daily() [7]int {
 			days[len(days)-1-ago]++
 		}
 	}
+	d.rev, d.today, d.days = s.rev, today, days
 	return days
 }
 
@@ -181,6 +198,7 @@ func (s *Store) Clear() {
 	s.mu.Lock()
 	s.events = nil
 	clear(s.counts)
+	s.rev++
 	if s.timer != nil {
 		s.timer.Stop()
 	}
@@ -249,6 +267,7 @@ func (s *Store) recount() {
 	for _, e := range s.events {
 		s.counts[e.BundleIdentifier]++
 	}
+	s.rev++
 }
 
 // dedup removes the activations of an app within half a second of its

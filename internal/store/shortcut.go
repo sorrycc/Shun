@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 
 	"shun/internal/keys"
 )
@@ -56,16 +57,32 @@ func FileURL(path string) string {
 }
 
 // PathFromURL returns the path of a file URL, without a trailing slash; a
-// plain path is returned as it is.
+// plain path is returned as it is. The paths are kept, as views ask for
+// those of the shortcuts on every frame.
 func PathFromURL(s string) string {
+	paths.Lock()
+	defer paths.Unlock()
+	if p, ok := paths.of[s]; ok {
+		return p
+	}
+	p := s
 	if u, err := url.Parse(s); err == nil && u.Scheme == "file" {
-		s = u.Path
+		p = u.Path
 	}
-	if len(s) > 1 {
-		s = strings.TrimSuffix(s, "/")
+	if len(p) > 1 {
+		p = strings.TrimSuffix(p, "/")
 	}
-	return s
+	if len(paths.of) >= 512 {
+		clear(paths.of)
+	}
+	paths.of[s] = p
+	return p
 }
+
+var paths = struct {
+	sync.Mutex
+	of map[string]string
+}{of: map[string]string{}}
 
 // NewID returns a random UUID in Foundation's uppercase form.
 func NewID() string {

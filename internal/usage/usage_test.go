@@ -78,3 +78,34 @@ func TestDaily(t *testing.T) {
 		t.Error("counts kept")
 	}
 }
+
+func TestCachedCountsFollowChanges(t *testing.T) {
+	s := Open(t.TempDir())
+	clock := time.Date(2026, 10, 14, 9, 0, 0, 0, time.Local)
+	s.now = func() time.Time { return clock }
+	s.Log("a")
+	if top, days := s.Top(10), s.Daily(); len(top) != 1 || days[6] != 1 {
+		t.Fatalf("top %v, days %v", top, days)
+	}
+	clock = clock.Add(time.Second)
+	s.Log("b")
+	s.Log("b")
+	clock = clock.Add(time.Second)
+	s.Log("b")
+	if top, days := s.Top(1), s.Daily(); len(top) != 1 || top[0] != (AppCount{"b", 2}) || days[6] != 3 {
+		t.Errorf("top %v, days %v", top, days)
+	}
+	top := s.Top(10)
+	top[0].Count = 99 // a copy
+	if s.Top(10)[0].Count != 2 {
+		t.Error("Top shares its cache")
+	}
+	clock = clock.Add(24 * time.Hour) // the next day, without a change
+	if days := s.Daily(); days[5] != 3 || days[6] != 0 {
+		t.Errorf("next day %v", days)
+	}
+	s.Clear()
+	if len(s.Top(10)) != 0 || s.Daily() != [7]int{} {
+		t.Error("cleared counts kept")
+	}
+}
