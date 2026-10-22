@@ -35,27 +35,38 @@ func newTestApp(t *testing.T) *app {
 	return a
 }
 
-// shot saves the tester's frame to $SHUN_SHOTS/name.png, to look at.
+// shot saves the tester's frame to $SHUN_SHOTS/name.png, and in the dark
+// theme to name-dark.png, to look at: once animations are over.
 func shot(t *testing.T, tt *ui.Tester, name string) {
 	dir := os.Getenv("SHUN_SHOTS")
 	if dir == "" {
 		return
 	}
-	f, err := os.Create(filepath.Join(dir, name+".png"))
-	if err != nil {
-		t.Fatal(err)
+	save := func(name string) {
+		tt.Advance(2 * time.Second)
+		f, err := os.Create(filepath.Join(dir, name+".png"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		if err := png.Encode(f, tt.Image()); err != nil {
+			t.Fatal(err)
+		}
 	}
-	defer f.Close()
-	if err := png.Encode(f, tt.Image()); err != nil {
-		t.Fatal(err)
-	}
+	tt.SetTitleBar(ui.TitleBar{Height: 28, Left: 78})
+	save(name)
+	tt.SetDark(true)
+	save(name + "-dark")
+	tt.SetDark(false)
+	tt.SetTitleBar(ui.TitleBar{})
 }
 
 func TestShortcutsTab(t *testing.T) {
 	a := newTestApp(t)
 	a.usage.Log("com.googlecode.iterm2")
-	tt := ui.NewTester(a.view, 580, 480)
-	for _, text := range []string{"iTerm2", "Safari", "⌥C", "Record Shortcut", "App not found", "1× past 7 days"} {
+	tt := ui.NewTester(a.view, 600, 520)
+	for _, text := range []string{"iTerm2", "Safari", "⌥", "C", "Record Shortcut", "App not found", "1× past 7 days",
+		"1 of 3 active"} {
 		if !tt.HasText(text) {
 			t.Errorf("no %q in %q", text, tt.Texts())
 		}
@@ -65,7 +76,7 @@ func TestShortcutsTab(t *testing.T) {
 
 func TestRecordShortcut(t *testing.T) {
 	a := newTestApp(t)
-	tt := ui.NewTester(a.view, 580, 480)
+	tt := ui.NewTester(a.view, 600, 520)
 	safari := a.store.Shortcuts[1]
 	if err := tt.Click("Record Shortcut"); err != nil {
 		t.Fatal(err)
@@ -73,6 +84,12 @@ func TestRecordShortcut(t *testing.T) {
 	if !tt.HasText("Type Shortcut") {
 		t.Fatalf("not recording: %q", tt.Texts())
 	}
+	tt.HoldModifiers(ui.Ctrl | ui.Super) // shows the modifiers held
+	if tt.HasText("Type Shortcut") || !tt.HasText("⌃") || !tt.HasText("⌘") {
+		t.Errorf("held modifiers not shown: %q", tt.Texts())
+	}
+	shot(t, tt, "recording")
+	tt.HoldModifiers(0)
 	tt.Key(0, ui.KeyK) // no modifier: still waiting
 	tt.Key(ui.Alt, ui.KeyC)
 	sc, _ := a.store.Get(safari.ID)
@@ -90,7 +107,7 @@ func TestRecordShortcut(t *testing.T) {
 
 func TestRecorderEscapeAndClear(t *testing.T) {
 	a := newTestApp(t)
-	tt := ui.NewTester(a.view, 580, 480)
+	tt := ui.NewTester(a.view, 600, 520)
 	tt.Click("Record Shortcut")
 	tt.Key(0, ui.KeyEscape)
 	if tt.HasText("Type Shortcut") {
@@ -106,7 +123,7 @@ func TestRecorderEscapeAndClear(t *testing.T) {
 
 func TestToggleAndRemove(t *testing.T) {
 	a := newTestApp(t)
-	tt := ui.NewTester(a.view, 580, 480)
+	tt := ui.NewTester(a.view, 600, 520)
 	if err := tt.Click("Enable Safari"); err != nil {
 		t.Fatal(err)
 	}
@@ -114,30 +131,35 @@ func TestToggleAndRemove(t *testing.T) {
 		t.Error("Safari is off")
 	}
 	tt.Click("Safari")
+	shot(t, tt, "selected")
 	if err := tt.Click("Remove Shortcut"); err != nil {
-		t.Fatal(err)
-	}
-	if !tt.HasText("Remove shortcut for Safari?") {
-		t.Fatalf("no confirmation: %q", tt.Texts())
-	}
-	shot(t, tt, "remove")
-	if err := tt.Click("Remove"); err != nil {
 		t.Fatal(err)
 	}
 	if len(a.store.Shortcuts) != 2 || a.store.HasApp("com.apple.Safari") {
 		t.Errorf("shortcuts %+v", a.store.Shortcuts)
+	}
+	if !tt.HasText("Removed Safari") {
+		t.Fatalf("no toast: %q", tt.Texts())
+	}
+	shot(t, tt, "remove")
+	if err := tt.Click("Undo"); err != nil {
+		t.Fatal(err)
+	}
+	if len(a.store.Shortcuts) != 3 || a.store.Shortcuts[1].BundleIdentifier != "com.apple.Safari" {
+		t.Errorf("not back in its place: %+v", a.store.Shortcuts)
 	}
 }
 
 func TestEmptyStates(t *testing.T) {
 	a := newTestApp(t)
 	a.store.Remove(a.store.Shortcuts[0].ID, a.store.Shortcuts[1].ID, a.store.Shortcuts[2].ID)
-	tt := ui.NewTester(a.view, 580, 480)
-	if !tt.HasText("No shortcuts configured") {
+	tt := ui.NewTester(a.view, 600, 520)
+	if !tt.HasText("No shortcuts yet") || !tt.HasText("Add App…") {
 		t.Errorf("texts %q", tt.Texts())
 	}
+	shot(t, tt, "empty")
 	tt.Click("Insights")
-	if !tt.HasText("No usage data yet") {
+	if !tt.HasText("No usage yet") {
 		t.Errorf("texts %q", tt.Texts())
 	}
 }
@@ -146,10 +168,10 @@ func TestOtherTabs(t *testing.T) {
 	a := newTestApp(t)
 	a.usage.Log("com.googlecode.iterm2")
 	a.usage.Log("com.apple.Safari")
-	tt := ui.NewTester(a.view, 580, 480)
+	tt := ui.NewTester(a.view, 600, 520)
 
 	tt.Click("Insights")
-	for _, text := range []string{"Most Used", "2 times", "Clear Usage Data"} {
+	for _, text := range []string{"Most Used", "Last 7 Days", "Switches", "Clear Usage Data…"} {
 		if !tt.HasText(text) {
 			t.Errorf("no %q in %q", text, tt.Texts())
 		}
@@ -172,13 +194,14 @@ func TestOtherTabs(t *testing.T) {
 	if !tt.HasText("Telemetry is only active in packaged release builds.") {
 		t.Errorf("texts %q", tt.Texts())
 	}
+	shot(t, tt, "privacy")
 }
 
 func TestImportRecipeFile(t *testing.T) {
 	a := newTestApp(t)
 	path := filepath.Join(t.TempDir(), "x.hotrecipe")
 	os.WriteFile(path, []byte(`{"version":9,"entries":[]}`), 0o644)
-	tt := ui.NewTester(a.view, 580, 480)
+	tt := ui.NewTester(a.view, 600, 520)
 	a.importRecipeFile(path)
 	tt.Frame()
 	if !tt.HasText("Recipe Import") {
@@ -205,11 +228,12 @@ func TestPicker(t *testing.T) {
 		{Name: "Safari", ID: "com.apple.Safari", Path: "/Applications/Safari.app"},
 	}
 	p.loadedAt = time.Now()
-	tt := ui.NewTester(a.view, 580, 480)
+	tt := ui.NewTester(a.view, 600, 520)
 	if err := tt.Click("Add App"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Type("cal")
+	tt.Frame()
 	if !tt.HasText("Calculator") || !tt.HasText("Calendar") || tt.HasText("com.apple.Safari") {
 		t.Fatalf("results %q", tt.Texts())
 	}

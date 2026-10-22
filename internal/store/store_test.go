@@ -126,6 +126,25 @@ func TestAddRemove(t *testing.T) {
 	}
 }
 
+func TestInsertUndoesRemove(t *testing.T) {
+	s, _ := openWith(t, "")
+	a := NewShortcut("/Applications/A.app", "a", "A")
+	a.Combo = &keys.Combo{KeyCode: 0, Modifiers: keys.CarbonOption}
+	s.Add(a)
+	s.Add(NewShortcut("/Applications/B.app", "b", "B"))
+	s.Remove(a.ID)
+	s.SetCombo(s.Shortcuts[0].ID, a.Combo) // B takes A's keys meanwhile
+	if !s.Insert(0, a) || names(s) != "AB" {
+		t.Fatalf("shortcuts %s", names(s))
+	}
+	if s.Shortcuts[0].Combo != nil || s.Shortcuts[1].Combo == nil {
+		t.Error("B keeps the keys it took")
+	}
+	if s.Insert(0, a) {
+		t.Error("A has a shortcut")
+	}
+}
+
 func names(s *Store) string {
 	var n []string
 	for _, sc := range s.Shortcuts {

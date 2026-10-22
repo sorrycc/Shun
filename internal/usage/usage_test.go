@@ -57,3 +57,24 @@ func TestLogDedupsAndSaves(t *testing.T) {
 		t.Error("file kept")
 	}
 }
+
+func TestDaily(t *testing.T) {
+	s := Open(t.TempDir())
+	clock := time.Date(2026, 10, 14, 9, 0, 0, 0, time.Local)
+	s.now = func() time.Time { return clock }
+	s.Log("a")
+	clock = clock.Add(2 * 24 * time.Hour) // two days later
+	s.Log("a")
+	s.Log("b")
+	clock = clock.Add(5 * time.Hour)
+	if days := s.Daily(); days != [7]int{0, 0, 0, 0, 1, 0, 2} {
+		t.Errorf("days %v", days)
+	}
+	if s.Count("a") != 2 || s.Count("b") != 1 {
+		t.Errorf("a %d, b %d", s.Count("a"), s.Count("b"))
+	}
+	s.Clear()
+	if s.Count("a") != 0 || len(s.Top(10)) != 0 {
+		t.Error("counts kept")
+	}
+}

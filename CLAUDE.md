@@ -49,9 +49,10 @@ Sparkle bridge for Swift installs.
 - `cmd/shun/main.go` — app lifecycle, tray menu, Settings window (made lazily), activation policy, migration, telemetry start
 - `cmd/shun/hotkeys.go` — wires the event tap (or the Carbon fallback via `mygo.GlobalShortcut`) to the engine and the store
 - `cmd/shun/settings.go` — Settings root (tabs), shared layout helpers; `tabs.go` — General, Insights, Privacy
+- `cmd/shun/style.go` — the look: palette from the theme, title-bar tabs, icon tiles, keycaps, motion presets
 - `cmd/shun/shortcuts.go` — Shortcuts tab: list (drag to reorder), rows, toolbar, drop, recipe import/export
 - `cmd/shun/picker.go` — app picker modal (`mygo.Shell.InstalledApps`); `recorder.go` — shortcut recorder widget
-- `cmd/shun/icons.go` — SVG icons, app icon cache (`mygo.Shell.FileIcon`)
+- `cmd/shun/icons.go` — SVG icons, app icon cache (`mygo.Shell.FileIcon`, drawn in the background)
 - `internal/hotkey` — `Engine`: shortcut table + running/frontmost app cache under one mutex; decides hide/activate/launch
 - `internal/macos` — purego: event tap (`tap.go`), running apps, SkyLight fast activation, NSWorkspace observers,
   bundles (`apps.go`), CFPreferences reader for the migration (`defaults.go`), objc helpers (`objc.go`)
@@ -87,6 +88,14 @@ Sparkle bridge for Swift installs.
 
 ## Logs
 Release builds: `~/Library/Logs/Shun/Shun.log` (`Shun.log.1` the run before). Dev builds: stderr.
+
+## Menu bar icon missing
+Not a code bug. macOS 26 can file Shun's icon under the terminal (e.g. iTerm2) that once launched it; if that
+terminal is off in System Settings → Menu Bar → "Allow in the Menu Bar", Shun's icon stays hidden even with Shun's
+own switch on. Fix: remove `com.shun.Shun` from the terminal's `menuItemLocations` in `trackedApplications` (a binary
+plist) of `~/Library/Group Containers/group.com.apple.controlcenter/Library/Preferences/group.com.apple.controlcenter.plist`
+(needs Full Disk Access), then `killall ControlCenter` and relaunch Shun. Open the release app from Finder or `open`,
+not from a terminal.
 
 ## Design Doc
 Original spec: `docs/designs/2026-03-18-hotapp.md` (Swift, old name). Behavior is preserved; see the Swift-era designs

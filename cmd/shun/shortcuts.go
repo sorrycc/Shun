@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -22,34 +23,51 @@ const recipeExt = "hotrecipe"
 // and a toolbar to add, remove, import and export them. Apps and recipes
 // dropped from Finder are added.
 func (a *app) shortcutsView(c *ui.Context) {
-	t := c.Theme()
 	s := &a.ui
 	root := ui.Column(c).Grow(1)
 	if files := root.DroppedFiles(); files != nil {
 		a.dropped(files)
 	}
-	if root.FileDragOver() {
-		root.Border(2, t.Accent)
-	}
+	over := root.FileDragOver()
 	if s.selected >= len(a.store.Shortcuts) {
 		s.selected = -1
 	}
 	root.Children(func() {
 		if len(a.store.Shortcuts) == 0 {
-			emptyState(c, iconKeyboard, "No shortcuts configured", "Click + or drag apps here to get started")
+			emptyState(c, iconKeyboard, "No shortcuts yet",
+				"Give an app a shortcut to bring it forward from anywhere, and press it again to hide it. "+
+					"Add an app, or drag apps here from Finder.",
+				func() {
+					if ui.PrimaryButton(c, "Add App…").Clicked() {
+						a.openPicker()
+					}
+				})
 		} else {
 			a.shortcutList(c)
 		}
-		ui.Divider(c)
 		a.toolbar(c)
+		if over {
+			dropOverlay(c)
+		}
 	})
 
-	ui.Modal(c, &s.picking, func() { a.pickerView(c) })
-	if ui.AlertDialog(c, &s.confirmRemove, a.removeTitle(), "", "Cancel", "Remove") == 1 {
-		a.store.Remove(s.removing...)
-		s.selected = -1
-		s.removing = nil
-	}
+	ui.Modal(c, &s.picking, func() { a.pickerView(c) }).Padding(0).Gap(0).Radius(12).
+		Transition(ui.ElementTransition{Duration: 180 * time.Millisecond, Enter: &ui.Motion{Scale: 0.96}})
+}
+
+// dropOverlay tells, over the tab, that apps dragged over it are added.
+func dropOverlay(c *ui.Context) {
+	t := c.Theme()
+	ui.Box(c.Key("drop")).Absolute().Left(8).Top(8).Right(8).Bottom(8).Radius(12).Center().
+		Background(t.Accent.Alpha(0.08)).Border(2, t.Accent.Alpha(0.7)).BorderStyle(ui.BorderDashed).
+		Transition(ui.ElementTransition{Duration: 150 * time.Millisecond, Enter: &ui.Motion{}, Exit: &ui.Motion{}}).
+		PassThrough().Children(func() {
+		ui.Column(c).Gap(8).AlignItems(ui.Center).Padding(16, 24).Radius(12).Background(t.Background).
+			Shadow(0, 6, 20, 0, ui.RGBA(0, 0, 0, 0.12)).Children(func() {
+			ui.Icon(c, iconImport).FontSize(26).TextColor(t.Accent)
+			ui.Text(c, "Drop to add apps or recipes").FontWeight(600)
+		})
+	})
 }
 
 func (a *app) shortcutList(c *ui.Context) {
@@ -59,39 +77,76 @@ func (a *app) shortcutList(c *ui.Context) {
 	s.list.Key = func(i int) any { return a.store.Shortcuts[i].ID }
 	s.list.Label = func(i int) string { return a.store.Shortcuts[i].DisplayName }
 	s.list.Reorder = func(rows []int, to int) { a.store.Move(rows, to) }
-	list := ui.List(c, &s.list, len(shortcuts), func(i int) { a.shortcutRow(c, i) }).Grow(1).Padding(6, 8)
+	list := ui.List(c, &s.list, len(shortcuts), func(i int) { a.shortcutRow(c, i) }).Grow(1).Padding(8, 10).Gap(2)
 	if s.selected >= 0 && (list.Shortcut(0, ui.KeyBackspace) || list.Shortcut(0, ui.KeyDelete)) {
-		a.askRemove(shortcuts[s.selected].ID)
+		a.remove(c, shortcuts[s.selected].ID)
 	}
 }
 
+// shortcutRow is a shortcut of the list, which paints its hover and its
+// choice: chosen, the row is in the accent color, its text on it.
 func (a *app) shortcutRow(c *ui.Context, i int) {
 	t := c.Theme()
 	sc := a.store.Shortcuts[i]
-	row := ui.Row(c).Padding(6, 10).Gap(12).AlignItems(ui.Center).Radius(8)
-	if i == a.ui.selected {
-		row.Background(t.Accent.Alpha(0.14))
+	chosen := i == a.ui.selected
+	row := ui.Row(c).Padding(8, 10).Gap(12).AlignItems(ui.Center).Radius(t.Radius)
+	if at, ok := a.ui.fresh[sc.ID]; ok {
+		// Just added: it lights up, then fades.
+		if left := freshTime - time.Since(at); left > 0 {
+			k := row.Keyframes("fresh", []ui.Keyframe{{At: 0, Value: 0.3}, {At: 300 * time.Millisecond, Value: 0.3},
+				{At: freshTime, Value: 0, Ease: ui.EaseInOut}})
+			row.Background(t.Accent.Alpha(k))
+			c.After(left)
+		} else {
+			delete(a.ui.fresh, sc.ID)
+		}
+	}
+	row.ContextMenu(func(m *ui.Menu) {
+		if m.Item("Show in Finder").Disabled(sc.Stale).Chosen() {
+			mygo.Shell.ShowItemInFolder(sc.Path())
+		}
+		m.Separator()
+		if m.Item("Remove").Chosen() {
+			a.remove(c, sc.ID)
+		}
+	})
+	// A shortcut turned off, or whose app is gone, shows faded.
+	fade := float32(1)
+	if sc.Stale || !sc.IsEnabled {
+		fade = 0.5
+	}
+	fade = row.AnimateTo("fade", fade, quick)
+	name, muted, warning := t.Text, t.TextMuted, t.Warning
+	if chosen {
+		name, muted, warning = t.AccentText, t.AccentText.Alpha(0.8), t.AccentText
 	}
 	row.Children(func() {
-		ui.Box(c).Opacity(staleOpacity(sc)).Children(func() {
+		ui.Box(c).Opacity(fade).Children(func() {
 			a.appIcon(c, sc.Path(), sc.DisplayName, 32)
 		})
-		ui.Column(c).Grow(1).Gap(2).Opacity(staleOpacity(sc)).Children(func() {
-			ui.Text(c, sc.DisplayName).SingleLine()
-			if sc.Stale {
-				ui.Text(c, "App not found").FontSize(11).TextColor(t.TextMuted)
-			} else if n := a.usage.Count(sc.BundleIdentifier); n > 0 {
-				ui.Textf(c, "%d× past 7 days", n).FontSize(11).TextColor(t.TextMuted)
+		ui.Column(c).Grow(1).Shrink(1).Gap(2).Opacity(max(fade, 0.7)).Children(func() {
+			ui.Text(c, sc.DisplayName).FontWeight(500).TextColor(name).SingleLine()
+			switch n := a.usage.Count(sc.BundleIdentifier); {
+			case sc.Stale:
+				ui.Row(c).Gap(4).AlignItems(ui.Center).Tooltip("App not found at " + sc.Path()).Children(func() {
+					ui.Icon(c, iconWarning).FontSize(11).TextColor(warning)
+					ui.Text(c, "App not found").FontSize(11).TextColor(warning)
+				})
+			case n > 0:
+				ui.Textf(c, "%d× past 7 days", n).FontSize(11).TextColor(muted)
+			case sc.Combo == nil:
+				ui.Text(c, "No shortcut").FontSize(11).TextColor(muted)
 			}
 		})
-		if sc.Stale {
-			ui.Icon(c, iconWarning).FontSize(14).TextColor(t.Warning).Tooltip("App not found at " + sc.Path())
-		}
-		ui.Column(c).Gap(2).AlignItems(ui.End).Children(func() {
+		ui.Column(c).Gap(3).AlignItems(ui.End).Children(func() {
 			a.recorder(c, sc.ID, sc.Combo)
 			if n, ok := a.ui.notices[sc.ID]; ok {
 				if left := time.Until(n.until); left > 0 {
-					ui.Text(c, n.text).FontSize(10).TextColor(t.Warning)
+					ui.Row(c.Key("notice")).Gap(4).AlignItems(ui.Center).
+						Transition(ui.ElementTransition{Enter: &ui.Motion{Y: -4}}).Children(func() {
+						ui.Icon(c, iconRefresh).FontSize(10).TextColor(warning)
+						ui.Text(c, n.text).FontSize(10).TextColor(warning)
+					})
 					c.After(left)
 				} else {
 					delete(a.ui.notices, sc.ID)
@@ -105,12 +160,8 @@ func (a *app) shortcutRow(c *ui.Context, i int) {
 	})
 }
 
-func staleOpacity(sc store.Shortcut) float32 {
-	if sc.Stale {
-		return 0.5
-	}
-	return 1
-}
+// freshTime is how long a shortcut just added stands out.
+const freshTime = 1600 * time.Millisecond
 
 // setCombo gives a shortcut its keys, telling for 3 seconds which shortcut
 // had them before.
@@ -124,19 +175,31 @@ func (a *app) setCombo(id string, combo *keys.Combo) {
 
 func (a *app) toolbar(c *ui.Context) {
 	t := c.Theme()
+	l := lookOf(t)
 	s := &a.ui
 	button := func(icon *ui.SVG, label string, disabled bool) bool {
-		b := ui.Button(c, "").Label(label).Tooltip(label).Disabled(disabled).Padding(4, 8).Children(func() {
-			ui.Icon(c, icon).FontSize(15).TextColor(t.Text)
+		b := ui.Button(c, "").Label(label).Tooltip(label).Disabled(disabled).Padding(5, 8).Children(func() {
+			ui.Icon(c, icon).FontSize(15)
 		})
 		return b.Clicked()
 	}
-	ui.Row(c).Padding(8, 12).Gap(6).AlignItems(ui.Center).Background(t.Surface).Children(func() {
+	ui.Box(c).Height(1).Background(l.cardBorder)
+	ui.Toolbar(c, func() {
 		if button(iconPlus, "Add App", false) {
 			a.openPicker()
 		}
 		if button(iconMinus, "Remove Shortcut", s.selected < 0) {
-			a.askRemove(a.store.Shortcuts[s.selected].ID)
+			a.remove(c, a.store.Shortcuts[s.selected].ID)
+		}
+		ui.Spacer(c)
+		if n := len(a.store.Shortcuts); n > 0 {
+			on := 0
+			for _, sc := range a.store.Shortcuts {
+				if sc.IsEnabled && sc.Combo != nil && !sc.Stale {
+					on++
+				}
+			}
+			ui.Textf(c, "%d of %d active", on, n).FontSize(11).TextColor(t.TextMuted)
 		}
 		ui.Spacer(c)
 		if button(iconImport, "Import Recipe", false) {
@@ -145,21 +208,35 @@ func (a *app) toolbar(c *ui.Context) {
 		if button(iconExport, "Export Recipe", len(a.store.Shortcuts) == 0) {
 			a.exportRecipe()
 		}
-	})
+	}).Label("Shortcuts").Padding(6, 10).Background(l.header)
 }
 
-func (a *app) askRemove(ids ...string) {
-	a.ui.removing = ids
-	a.ui.confirmRemove = true
-}
-
-func (a *app) removeTitle() string {
-	if len(a.ui.removing) == 1 {
-		if sc, ok := a.store.Get(a.ui.removing[0]); ok {
-			return fmt.Sprintf("Remove shortcut for %s?", sc.DisplayName)
+// remove removes shortcuts at once, with a toast to undo it.
+func (a *app) remove(c *ui.Context, ids ...string) {
+	type removed struct {
+		at int
+		sc store.Shortcut
+	}
+	var gone []removed
+	for i, sc := range a.store.Shortcuts {
+		if slices.Contains(ids, sc.ID) {
+			gone = append(gone, removed{i, sc})
 		}
 	}
-	return fmt.Sprintf("Remove %d shortcuts?", len(a.ui.removing))
+	if len(gone) == 0 {
+		return
+	}
+	a.store.Remove(ids...)
+	a.ui.selected = -1
+	msg := fmt.Sprintf("Removed %d shortcuts", len(gone))
+	if len(gone) == 1 {
+		msg = "Removed " + gone[0].sc.DisplayName
+	}
+	c.ToastAction(msg, "Undo", func() {
+		for _, r := range gone { // in order, so that each goes back where it was
+			a.store.Insert(r.at, r.sc)
+		}
+	})
 }
 
 // dropped adds the apps and imports the recipes dropped on the tab.
@@ -181,7 +258,15 @@ func (a *app) addApp(path string) {
 		log.Printf("adding %s: not an app bundle", path)
 		return
 	}
-	a.store.Add(store.NewShortcut(path, id, name))
+	a.added(store.NewShortcut(path, id, name))
+}
+
+// added adds a shortcut, which stands out for a moment in the list.
+func (a *app) added(sc store.Shortcut) {
+	if a.store.Add(sc) {
+		a.ui.fresh[sc.ID] = time.Now()
+		a.ui.list.ScrollIntoView(len(a.store.Shortcuts) - 1)
+	}
 }
 
 func (a *app) importRecipe() {

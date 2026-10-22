@@ -92,6 +92,24 @@ func (s *Store) Remove(ids ...string) {
 	}
 }
 
+// Insert puts a removed shortcut back at index i, as undoing its removal,
+// unless its app has a shortcut again; it drops keys another shortcut took
+// in the meantime.
+func (s *Store) Insert(i int, sc Shortcut) bool {
+	if s.HasApp(sc.BundleIdentifier) {
+		return false
+	}
+	if sc.Combo != nil && slices.ContainsFunc(s.Shortcuts, func(o Shortcut) bool {
+		return o.Combo != nil && *o.Combo == *sc.Combo
+	}) {
+		sc.Combo = nil
+	}
+	sc.Stale = !s.AppExists(sc.Path())
+	s.Shortcuts = slices.Insert(s.Shortcuts, max(0, min(i, len(s.Shortcuts))), sc)
+	s.changed()
+	return true
+}
+
 // Move moves the shortcuts at rows before the shortcut at index to (len
 // for the end), keeping their order, as a list reorders its rows.
 func (s *Store) Move(rows []int, to int) {

@@ -41,6 +41,7 @@ type Store struct {
 	mu       sync.Mutex
 	path     string
 	events   []Event
+	counts   map[string]int // the events of each app
 	timer    *time.Timer
 	onChange func()
 	now      func() time.Time
@@ -53,6 +54,7 @@ func Open(dir string) *Store {
 	s.events = load(s.path)
 	s.prune()
 	s.events = dedup(s.events)
+	s.recount()
 	return s
 }
 
@@ -101,6 +103,7 @@ func (s *Store) Log(bundleID string) {
 		}
 	}
 	s.events = append(s.events, Event{Timestamp: now, BundleIdentifier: bundleID})
+	s.counts[bundleID]++
 	s.scheduleSave()
 	fn := s.onChange
 	s.mu.Unlock()
@@ -113,13 +116,7 @@ func (s *Store) Log(bundleID string) {
 func (s *Store) Count(bundleID string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	n := 0
-	for _, e := range s.events {
-		if e.BundleIdentifier == bundleID {
-			n++
-		}
-	}
-	return n
+	return s.counts[bundleID]
 }
 
 // Total returns the number of activations.
@@ -127,6 +124,13 @@ func (s *Store) Total() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.events)
+}
+
+// Apps returns the number of apps activated.
+func (s *Store) Apps() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.counts)
 }
 
 // AppCount is the number of activations of an app.
@@ -138,15 +142,11 @@ type AppCount struct {
 // Top returns the apps activated most, most first.
 func (s *Store) Top(limit int) []AppCount {
 	s.mu.Lock()
-	counts := map[string]int{}
-	for _, e := range s.events {
-		counts[e.BundleIdentifier]++
-	}
-	s.mu.Unlock()
-	top := make([]AppCount, 0, len(counts))
-	for id, n := range counts {
+	top := make([]AppCount, 0, len(s.counts))
+	for id, n := range s.counts {
 		top = append(top, AppCount{id, n})
 	}
+	s.mu.Unlock()
 	slices.SortFunc(top, func(a, b AppCount) int {
 		return cmp.Or(cmp.Compare(b.Count, a.Count), cmp.Compare(a.BundleIdentifier, b.BundleIdentifier))
 	})
@@ -156,10 +156,31 @@ func (s *Store) Top(limit int) []AppCount {
 	return top
 }
 
+// Daily returns the activations of each of the last 7 days, by the local
+// calendar, today last.
+func (s *Store) Daily() [7]int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var days [7]int
+	now := s.now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	for _, e := range s.events {
+		t := e.Timestamp.In(now.Location())
+		day := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, now.Location())
+		// Rounded, for the days that daylight saving time makes 23 or 25 hours.
+		ago := int((today.Sub(day) + 12*time.Hour) / (24 * time.Hour))
+		if ago >= 0 && ago < len(days) {
+			days[len(days)-1-ago]++
+		}
+	}
+	return days
+}
+
 // Clear deletes every event, and the file.
 func (s *Store) Clear() {
 	s.mu.Lock()
 	s.events = nil
+	clear(s.counts)
 	if s.timer != nil {
 		s.timer.Stop()
 	}
@@ -215,7 +236,19 @@ func (s *Store) save() {
 
 func (s *Store) prune() {
 	cutoff := s.now().Add(-keep)
+	n := len(s.events)
 	s.events = slices.DeleteFunc(s.events, func(e Event) bool { return e.Timestamp.Before(cutoff) })
+	if len(s.events) != n {
+		s.recount()
+	}
+}
+
+// recount counts the events of each app again; s.mu is held.
+func (s *Store) recount() {
+	s.counts = make(map[string]int)
+	for _, e := range s.events {
+		s.counts[e.BundleIdentifier]++
+	}
 }
 
 // dedup removes the activations of an app within half a second of its

@@ -57,26 +57,31 @@ func (c Combo) CGFlags() uint64 {
 }
 
 // String spells the combo as macOS menus do, such as ⌃⌥⇧⌘K.
-func (c Combo) String() string {
-	var b strings.Builder
-	if c.Modifiers&CarbonControl != 0 {
-		b.WriteString("⌃")
-	}
-	if c.Modifiers&CarbonOption != 0 {
-		b.WriteString("⌥")
-	}
-	if c.Modifiers&CarbonShift != 0 {
-		b.WriteString("⇧")
-	}
-	if c.Modifiers&CarbonCmd != 0 {
-		b.WriteString("⌘")
-	}
+func (c Combo) String() string { return strings.Join(c.Parts(), "") }
+
+// Parts returns the symbols of the combo's modifiers, in the order of
+// macOS menus, then its key's label: ⌃ ⌥ ⇧ ⌘ K.
+func (c Combo) Parts() []string {
+	parts := ModifierSymbols(c.Modifiers)
 	if k, ok := byCode[c.KeyCode]; ok {
-		b.WriteString(k.label)
-	} else {
-		b.WriteString("?")
+		return append(parts, k.label)
 	}
-	return b.String()
+	return append(parts, "?")
+}
+
+// ModifierSymbols returns the symbols of Carbon modifiers, as menus show
+// them: ⌃ ⌥ ⇧ ⌘.
+func ModifierSymbols(mods int) []string {
+	var s []string
+	for _, m := range []struct {
+		flag   int
+		symbol string
+	}{{CarbonControl, "⌃"}, {CarbonOption, "⌥"}, {CarbonShift, "⇧"}, {CarbonCmd, "⌘"}} {
+		if mods&m.flag != 0 {
+			s = append(s, m.symbol)
+		}
+	}
+	return s
 }
 
 // Accelerator returns the combo as a MyGo accelerator, such as

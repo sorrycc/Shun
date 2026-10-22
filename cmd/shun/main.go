@@ -173,13 +173,17 @@ func (a *app) window() *mygo.Window {
 	}
 	a.win = mygo.NewWindow(mygo.WindowOptions{
 		Title:             "Shun Settings",
-		Width:             580,
-		Height:            480,
-		MinWidth:          520,
-		MinHeight:         400,
+		Width:             600,
+		Height:            520,
+		MinWidth:          540,
+		MinHeight:         420,
 		Hidden:            true,
 		DisableFullScreen: true,
-		Content:           ui.View(a.view),
+		// The view draws the title and the tabs under the window controls,
+		// as one toolbar.
+		TitleBarStyle:   mygo.TitleBarHidden,
+		BackgroundColor: "light-dark(#ffffff, #1e1e1e)",
+		Content:         ui.View(a.view),
 	})
 	a.win.OnClose(func(e *mygo.CloseEvent) {
 		if !a.quitting {
@@ -187,6 +191,7 @@ func (a *app) window() *mygo.Window {
 			a.win.Hide()
 		}
 	})
+	a.icons.post = a.win.Update
 	a.win.OnHide(func() {
 		a.ui.reset()
 		a.icons.clear() // apps may change while it is hidden
@@ -292,9 +297,12 @@ func askForAccessibility() {
 		Buttons: []string{"Open System Settings", "Later"},
 	})
 	if err == nil && res.Button == 0 {
-		mygo.Shell.OpenExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+		mygo.Shell.OpenExternal(accessibilitySettings)
 	}
 }
+
+// accessibilitySettings opens System Settings at the Accessibility list.
+const accessibilitySettings = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
 
 // telemetryConfig returns where telemetry goes, from the Info.plist of
 // release builds; false for others.
