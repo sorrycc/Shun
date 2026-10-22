@@ -79,7 +79,8 @@ func dropOverlay(c *ui.Context) {
 		Transition(ui.ElementTransition{Duration: 150 * time.Millisecond, Enter: &ui.Motion{}, Exit: &ui.Motion{}}).
 		PassThrough().Children(func() {
 		ui.Column(c).Gap(8).AlignItems(ui.Center).Padding(16, 24).Radius(12).Background(t.Background).
-			Shadow(0, 6, 20, 0, ui.RGBA(0, 0, 0, 0.12)).Children(func() {
+			Shadow(0, 6, 20, 0, ui.RGBA(0, 0, 0, 0.12)).
+			Transition(ui.ElementTransition{Animation: &press, Enter: &ui.Motion{Scale: 0.92}}).Children(func() {
 			ui.Icon(c, iconImport).FontSize(26).TextColor(t.Accent)
 			ui.Text(c, "Drop to add apps or recipes").FontWeight(600)
 		})
@@ -250,7 +251,11 @@ func (a *app) shortcutRow(c *ui.Context, i int) {
 			}
 		})
 		on := sc.IsEnabled
-		if ui.Switch(c.Key("enabled-"+sc.ID), &on).Label("Enable " + sc.DisplayName).Changed() {
+		sw := ui.Switch(c.Key("enabled-"+sc.ID), &on).Label("Enable " + sc.DisplayName)
+		if sc.Stale {
+			sw.Opacity(0.6) // it can do nothing until the app is back
+		}
+		if sw.Changed() {
 			a.store.SetEnabled(sc.ID, on)
 		}
 	})
@@ -302,7 +307,9 @@ func (a *app) toolbar(c *ui.Context) {
 			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 				dot := ui.Box(c).Size(6, 6).Radius(3)
 				dot.Background(dot.AnimateColor("dot", color, quick))
-				ui.Text(c, status).FontSize(11).TextColor(t.TextMuted).FontFeatures("tnum")
+				// A new count rolls in over the last.
+				ui.Text(c.Key(status), status).FontSize(11).TextColor(t.TextMuted).FontFeatures("tnum").
+					Transition(ui.ElementTransition{Duration: 160 * time.Millisecond, Enter: &ui.Motion{Y: 5}, Exit: &ui.Motion{Y: -5}})
 			})
 		}
 		ui.Spacer(c)

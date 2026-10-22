@@ -25,7 +25,7 @@ Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Insights** shows your daily average under today's count, and as a line across the 7-day chart.
 - While you record keys, the row tells you how, and a key pressed without a modifier shakes the recorder instead of doing nothing. Right-click a shortcut to turn it off or clear its keys.
 - The app picker shows placeholder rows while it scans your apps, has a button to clear the search, and shakes an app's **Added** badge if you pick it again.
-- **Insights** compares today with your daily average, labels the chart's average line, rounds the bars at the top, and shows each app's share of your switches. The shortcut list shows how many apps it has, and the tabs' tooltips show their ⌘1–⌘4 keys.
+- **Insights** compares today with your daily average, labels the chart's average line, rounds the bars at the top, and shows each app's share of your switches. The shortcut list shows how many apps it has, the switch of a shortcut whose app is missing fades, the active count rolls as it changes, and the tabs' tooltips show their ⌘1–⌘4 keys.
 - With **Reduce Motion** on, the recorder and the app picker stop animating while they wait. Settings redraws with less work: usage charts are counted only after a change, and app paths are no longer parsed on every frame.
 - The Settings window is a little taller, so Insights fits without scrolling as much. Settings no longer redraws while hidden on every shortcut you press, and checks the Accessibility permission at most once a second.
 
