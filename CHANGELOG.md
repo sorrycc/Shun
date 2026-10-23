@@ -5,7 +5,7 @@ All notable changes to Shun are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 1.2.0
 - A redesigned **Settings** window: tabs with icons in a unified title bar, settings grouped in cards with System Settings-style icons, and small animations as you switch tabs, record keys or add apps.
 - Shortcuts show their keys as keycaps. While recording, the recorder shows the modifiers you hold, and a newly added app lights up in the list.
 - Removing a shortcut no longer asks first: it shows **Undo** instead. Right-click a shortcut to show its app in Finder or remove it.
