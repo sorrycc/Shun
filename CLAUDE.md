@@ -1,5 +1,7 @@
 # Shun — Claude Code Project Guide
 
+@AGENTS.md
+
 ## What is this?
 macOS 14+ menu bar app for global hotkey-to-app switching (Thor clone). Go, with native UI drawn by
 [MyGo](https://github.com/egoist/mygo) (package `ui`, no webview, no cgo); macOS APIs MyGo lacks are called through

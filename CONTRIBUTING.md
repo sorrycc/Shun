@@ -42,8 +42,8 @@ Otherwise, fill them in by hand from `.env.example` and `Scripts/telemetry.confi
 
 ## Releasing
 
-The version is `version` in `mygo.json`. Write the release notes under `## Unreleased` in `CHANGELOG.md` and commit
-them, then:
+The version is `version` in `mygo.json`. Write the release notes under `## Unreleased` in `CHANGELOG.md`, as
+[AGENTS.md](AGENTS.md) describes, and commit them, then:
 
 ```bash
 Scripts/bump.sh patch    # or minor, major, or a version such as 2.0.0
