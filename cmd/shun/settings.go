@@ -44,7 +44,6 @@ type settingsState struct {
 
 	loginItem    bool
 	confirmClear bool
-	confirmReset bool
 
 	// Whether Shun has the Accessibility permission, and when it was asked.
 	isTrusted bool
@@ -65,7 +64,7 @@ func (s *settingsState) init() {
 // reset forgets what was under way as the window hides.
 func (s *settingsState) reset() {
 	s.picking, s.alertOpen, s.recording = false, false, ""
-	s.confirmClear, s.confirmReset = false, false
+	s.confirmClear = false
 }
 
 // trusted reports whether Shun has the Accessibility permission, asked at

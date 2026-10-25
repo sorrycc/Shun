@@ -294,7 +294,7 @@ func dailyChart(c *ui.Context, days [7]int) {
 	})
 }
 
-// privacyView is the Privacy tab: telemetry, which the user can turn off.
+// privacyView is the Privacy tab: crash reports, which the user can turn off.
 func (a *app) privacyView(c *ui.Context) {
 	t := c.Theme()
 	l := lookOf(t)
@@ -327,30 +327,7 @@ func (a *app) privacyView(c *ui.Context) {
 					"We upload those on next launch so we can fix the bug.", &on) {
 				a.prefs.SetCrashReportsEnabled(on)
 			}
-			divider(c, rowIndent)
-			if on := a.prefs.UsageStatsEnabled(); switchRow(c, iconChart, tileBlue, "Send anonymous usage stats",
-				"Sends one anonymous ping per day with your app version, macOS version, and locale. "+
-					"Used to count active installs.", &on) {
-				a.prefs.SetUsageStatsEnabled(on)
-			}
 		})
 		promise()
-		section(c, "Identifier", func() {
-			settingRow(c, iconHash, tileGray, "Anonymous ID", "Ties pings and crash reports together, and nothing else.", func() {
-				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-					id := a.prefs.InstallID()
-					ui.Text(c, id[:min(8, len(id))]+"…").Font("monospace").FontSize(11).TextColor(t.TextMuted).
-						Padding(2, 6).Radius(5).Background(l.subtle)
-					if ui.Button(c, "Reset…").Label("Reset Anonymous ID").Clicked() {
-						a.ui.confirmReset = true
-					}
-				})
-			})
-		})
 	})
-	if ui.AlertDialog(c, &a.ui.confirmReset, "Reset Anonymous ID?",
-		"Future pings and crashes will be attributed to a new UUID. This does not change the telemetry toggles above.",
-		"Cancel", "Reset") == 1 {
-		a.prefs.ResetInstallID()
-	}
 }

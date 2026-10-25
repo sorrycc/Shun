@@ -258,8 +258,6 @@ func TestMigrate(t *testing.T) {
 	d := fakeDefaults{
 		"KeyboardShortcuts_hotapp_6AC8498A-B41F-435E-9A82-B99AB1CB8376": `{"carbonKeyCode":2,"carbonModifiers":6912}`,
 		"globalEnabled":                 false,
-		"telemetry.dauEnabled":          false,
-		"telemetry.installId":           "331FBFD3-A23A-43AE-8F2F-0252AA4C66F3",
 		"telemetry.uploadedCrashes":     []string{"Shun-2026.ips"},
 		"telemetry.crashReportsEnabled": true,
 	}
@@ -272,10 +270,10 @@ func TestMigrate(t *testing.T) {
 	if s.Shortcuts[1].Combo != nil {
 		t.Error("the second shortcut had no keys")
 	}
-	if p.GlobalEnabled() || p.UsageStatsEnabled() || !p.CrashReportsEnabled() {
+	if p.GlobalEnabled() || !p.CrashReportsEnabled() {
 		t.Error("preferences not imported")
 	}
-	if p.InstallID() != "331FBFD3-A23A-43AE-8F2F-0252AA4C66F3" || len(p.UploadedCrashes()) != 1 {
+	if len(p.UploadedCrashes()) != 1 {
 		t.Error("telemetry state not imported")
 	}
 	// Persisted, and once only.

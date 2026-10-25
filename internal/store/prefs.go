@@ -19,9 +19,6 @@ type Prefs struct {
 type prefsData struct {
 	GlobalEnabled       bool     `json:"globalEnabled"`
 	CrashReportsEnabled bool     `json:"crashReportsEnabled"`
-	UsageStatsEnabled   bool     `json:"usageStatsEnabled"`
-	InstallID           string   `json:"installId,omitempty"`
-	LastPingDate        string   `json:"lastPingDate,omitempty"`
 	UploadedCrashes     []string `json:"uploadedCrashes,omitempty"`
 	// Migrated is set once the Swift app's UserDefaults were imported.
 	Migrated bool `json:"migratedFromUserDefaults"`
@@ -32,7 +29,6 @@ func OpenPrefs(dir string) (*Prefs, error) {
 	p := &Prefs{path: filepath.Join(dir, prefsFile), v: prefsData{
 		GlobalEnabled:       true,
 		CrashReportsEnabled: true,
-		UsageStatsEnabled:   true,
 	}}
 	if _, err := readJSON(p.path, &p.v); err != nil {
 		log.Printf("prefs: reading %s: %v", p.path, err)
@@ -66,33 +62,6 @@ func (p *Prefs) CrashReportsEnabled() (on bool) {
 func (p *Prefs) SetCrashReportsEnabled(on bool) {
 	p.set(func(v *prefsData) { v.CrashReportsEnabled = on })
 }
-
-func (p *Prefs) UsageStatsEnabled() (on bool) {
-	p.get(func(v *prefsData) { on = v.UsageStatsEnabled })
-	return
-}
-func (p *Prefs) SetUsageStatsEnabled(on bool) { p.set(func(v *prefsData) { v.UsageStatsEnabled = on }) }
-
-// InstallID returns the anonymous ID of this installation, made the first
-// time.
-func (p *Prefs) InstallID() (id string) {
-	p.get(func(v *prefsData) { id = v.InstallID })
-	if id == "" {
-		p.set(func(v *prefsData) {
-			if v.InstallID == "" {
-				v.InstallID = NewID()
-			}
-			id = v.InstallID
-		})
-	}
-	return id
-}
-
-// ResetInstallID replaces the anonymous ID.
-func (p *Prefs) ResetInstallID() { p.set(func(v *prefsData) { v.InstallID = NewID() }) }
-
-func (p *Prefs) LastPingDate() (d string) { p.get(func(v *prefsData) { d = v.LastPingDate }); return }
-func (p *Prefs) SetLastPingDate(d string) { p.set(func(v *prefsData) { v.LastPingDate = d }) }
 
 func (p *Prefs) UploadedCrashes() (names []string) {
 	p.get(func(v *prefsData) { names = append(names, v.UploadedCrashes...) })

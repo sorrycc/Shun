@@ -98,7 +98,7 @@ updates from GitHub; the appcast and `Scripts/upload_r2.ts` are no longer needed
 
 What carries over: the shortcuts (`~/Library/Application Support/Shun/shortcuts.json`, read and written in the Swift
 format), their keys (imported once from the `KeyboardShortcuts_hotapp_*` UserDefaults into `shortcuts.json`),
-"Enabled", the telemetry choices and anonymous ID (into `settings.json`), the usage history, and the automatic
+"Enabled", the crash reports choice (into `settings.json`), the usage history, and the automatic
 update checks choice. UserDefaults are left as they were, so going back to a Swift version works.
 
 ## Logs

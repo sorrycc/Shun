@@ -5,6 +5,10 @@ All notable changes to Shun are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+- Shun no longer sends a daily usage ping, and **Settings → Privacy** drops its switch.
+- Crash reports no longer include an anonymous ID, and the **Anonymous ID** row is gone.
+
 ## 1.2.0
 - **Settings** is redesigned, with icon tabs in the title bar and settings grouped in cards.
 - `⌘1`–`⌘4` switch between the Settings tabs, and the tabs' tooltips show these keys.

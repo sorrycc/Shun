@@ -62,7 +62,7 @@ Sparkle bridge for Swift installs.
   UserDefaults migration (`migrate.go`), files + HotApp dir move (`files.go`)
 - `internal/usage` — 7-day activation log (usage.json), safe from any goroutine
 - `internal/keys` — key combos: Carbon key code + Carbon modifiers, CGEvent flags, labels, accelerators
-- `internal/telemetry` — daily ping + crash upload, HMAC-signed
+- `internal/telemetry` — crash upload, HMAC-signed
 
 ## Critical Conventions
 - **Threads**: MyGo runs the view, menus, tray and workspace notifications on the main thread. The event tap's

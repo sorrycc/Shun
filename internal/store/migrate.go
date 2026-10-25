@@ -50,17 +50,8 @@ func Migrate(s *Store, p *Prefs, d Defaults) bool {
 		if on, ok := d.Bool("globalEnabled"); ok {
 			v.GlobalEnabled = on
 		}
-		if on, ok := d.Bool("telemetry.dauEnabled"); ok {
-			v.UsageStatsEnabled = on
-		}
 		if on, ok := d.Bool("telemetry.crashReportsEnabled"); ok {
 			v.CrashReportsEnabled = on
-		}
-		if id, ok := d.String("telemetry.installId"); ok && id != "" {
-			v.InstallID = id
-		}
-		if day, ok := d.String("telemetry.lastPingDate"); ok {
-			v.LastPingDate = day
 		}
 		if names, ok := d.Strings("telemetry.uploadedCrashes"); ok {
 			v.UploadedCrashes = names

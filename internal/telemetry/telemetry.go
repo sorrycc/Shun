@@ -1,6 +1,6 @@
-// Package telemetry sends a daily anonymous ping and uploads Shun's crash
-// reports to the telemetry worker, both of which the user can turn off in
-// Settings → Privacy. Requests are signed with an HMAC of their body.
+// Package telemetry uploads Shun's crash reports to the telemetry worker,
+// which the user can turn off in Settings → Privacy. Requests are signed with
+// an HMAC of their body.
 package telemetry
 
 import (
@@ -44,18 +44,13 @@ const (
 	uploadedCap = 500
 )
 
-// Run pings and uploads the crash reports the user allows.
+// Run uploads the crash reports, if the user allows it.
 func Run(ctx context.Context, c Config, p *store.Prefs) {
 	if c.Client == nil {
 		c.Client = http.DefaultClient
 	}
 	if p.CrashReportsEnabled() {
 		UploadCrashes(ctx, c, p)
-	}
-	if p.UsageStatsEnabled() {
-		if err := Ping(ctx, c, p); err != nil {
-			log.Printf("telemetry: ping: %v", err)
-		}
 	}
 }
 
@@ -64,32 +59,6 @@ func Sign(body []byte, key string) string {
 	m := hmac.New(sha256.New, []byte(key))
 	m.Write(body)
 	return hex.EncodeToString(m.Sum(nil))
-}
-
-func today() string { return time.Now().UTC().Format("2006-01-02") }
-
-// Ping sends the daily ping, once a day.
-func Ping(ctx context.Context, c Config, p *store.Prefs) error {
-	day := today()
-	if p.LastPingDate() == day {
-		return nil
-	}
-	// encoding/json sorts map keys, as the Swift app's .sortedKeys did.
-	body, err := json.Marshal(map[string]string{
-		"app":       appID,
-		"installId": p.InstallID(),
-		"version":   c.AppVersion,
-		"osVersion": c.OSVersion,
-		"locale":    c.Locale,
-	})
-	if err != nil {
-		return err
-	}
-	if err := c.post(ctx, "v1/ping", "application/json", body, 15*time.Second); err != nil {
-		return err
-	}
-	p.SetLastPingDate(day)
-	return nil
 }
 
 // UploadCrashes uploads the reports not uploaded yet, oldest first.
@@ -138,7 +107,6 @@ func (c Config) uploadCrash(ctx context.Context, p *store.Prefs, name string) er
 	}
 	meta, err := json.Marshal(map[string]string{
 		"app":       appID,
-		"installId": p.InstallID(),
 		"version":   c.AppVersion,
 		"osVersion": c.OSVersion,
 		"fileName":  name,
