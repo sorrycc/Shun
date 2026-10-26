@@ -29,7 +29,8 @@ func (a *app) shortcutsView(c *ui.Context) {
 		a.dropped(files)
 	}
 	over := root.FileDragOver()
-	if s.selected >= len(a.store.Shortcuts) {
+	a.filterShortcuts()
+	if s.selected >= len(s.visible) {
 		s.selected = -1
 	}
 	root.Children(func() {
@@ -105,11 +106,14 @@ func (a *app) shortcutCard(c *ui.Context) {
 		}
 		ui.Row(c).PaddingX(4).Gap(6).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, "Apps").FontSize(12).FontWeight(600).TextColor(t.TextMuted)
-			ui.Textf(c, "%d", len(a.store.Shortcuts)).FontSize(10).FontWeight(600).FontFeatures("tnum").
+			count := fmt.Sprintf("%d", len(a.store.Shortcuts))
+			if a.ui.query != "" {
+				count = fmt.Sprintf("%d of %d", len(a.ui.visible), len(a.store.Shortcuts))
+			}
+			ui.Text(c, count).FontSize(10).FontWeight(600).FontFeatures("tnum").
 				TextColor(t.TextMuted).Padding(0, 6).Radius(999).Background(l.subtle)
 			ui.Spacer(c)
-			ui.Text(c, "Click a shortcut to record keys · drag to reorder").FontSize(11).
-				TextColor(t.TextMuted.Alpha(0.8)).SingleLine()
+			a.searchField(c)
 		})
 		card := ui.Column(c).Grow(1).Radius(10).Background(l.card).Border(1, l.cardBorder).
 			Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, 0.04)).Clip()
@@ -119,9 +123,13 @@ func (a *app) shortcutCard(c *ui.Context) {
 			dim = 0.6
 		}
 		card.Opacity(card.AnimateTo("dim", dim, quick)).Children(func() {
+			if len(a.ui.visible) == 0 {
+				noMatches(c, a)
+				return
+			}
 			a.shortcutList(c)
 			// Under a few shortcuts, the room left tells how to add more.
-			if len(a.store.Shortcuts) < 6 {
+			if len(a.store.Shortcuts) < 6 && a.ui.query == "" {
 				ui.Row(c).Gap(6).AlignItems(ui.Center).Justify(ui.Center).Padding(10).PassThrough().Children(func() {
 					ui.Icon(c, iconImport).FontSize(12).TextColor(t.TextMuted.Alpha(0.6))
 					ui.Text(c, "Drag apps here from Finder, or press + to add one").FontSize(11).
@@ -132,16 +140,105 @@ func (a *app) shortcutCard(c *ui.Context) {
 	})
 }
 
+// searchField filters the list as one types. ⌘F focuses it (see view),
+// and Escape clears it.
+func (a *app) searchField(c *ui.Context) {
+	t := c.Theme()
+	l := lookOf(t)
+	s := &a.ui
+	ui.Row(c).Width(200).Gap(6).AlignItems(ui.Center).Padding(3, 8).Radius(6).Background(l.subtle).
+		Children(func() {
+			typed := s.query != ""
+			glass := ui.Icon(c, iconSearch).FontSize(11)
+			if typed {
+				glass.TextColor(glass.AnimateColor("fg", t.Accent, quick))
+			} else {
+				glass.TextColor(glass.AnimateColor("fg", t.TextMuted, quick))
+			}
+			field := ui.TextInputBase(c, &s.query).Bind(&s.search).Grow(1).FontSize(12).
+				Label("Filter Apps").Placeholder("Filter apps…")
+			if field.Changed() {
+				a.setQuery(s.query)
+			}
+			if typed && field.Shortcut(0, ui.KeyEscape) {
+				a.setQuery("")
+			}
+			if typed {
+				x := ui.ButtonBase(c.Key("clear")).Label("Clear Filter").Size(14, 14).Radius(7).Center().
+					Transition(ui.ElementTransition{Duration: 140 * time.Millisecond, Enter: &ui.Motion{Scale: 0.6},
+						Exit: &ui.Motion{Scale: 0.6}})
+				bg := t.Text.Alpha(0.12)
+				if x.Hovered() {
+					bg = t.Text.Alpha(0.2)
+				}
+				x.Background(x.AnimateColor("bg", bg, quick)).Children(func() {
+					ui.Icon(c, iconClose).FontSize(8).TextColor(t.TextMuted)
+				})
+				if x.Clicked() {
+					a.setQuery("")
+					s.search.Focus()
+				}
+			}
+		})
+}
+
+// setQuery filters the list anew, forgetting the row chosen.
+func (a *app) setQuery(q string) {
+	a.ui.query = q
+	a.ui.selected = -1
+	a.filterShortcuts()
+}
+
+// filterShortcuts finds the shortcuts whose app name or bundle ID has the
+// query, in the list's order.
+func (a *app) filterShortcuts() {
+	s := &a.ui
+	q := strings.ToLower(strings.TrimSpace(s.query))
+	s.visible = s.visible[:0]
+	for i, sc := range a.store.Shortcuts {
+		if q == "" || strings.Contains(strings.ToLower(sc.DisplayName), q) ||
+			strings.Contains(strings.ToLower(sc.BundleIdentifier), q) {
+			s.visible = append(s.visible, i)
+		}
+	}
+}
+
+// noMatches tells, in place of the list, that no shortcut has the query.
+func noMatches(c *ui.Context, a *app) {
+	t := c.Theme()
+	ui.Column(c).Grow(1).Center().Gap(6).Padding(24).Children(func() {
+		ui.Icon(c, iconSearch).FontSize(28).TextColor(t.TextMuted.Alpha(0.6))
+		ui.Textf(c, "No apps match “%s”", strings.TrimSpace(a.ui.query)).FontWeight(600).TextColor(t.TextMuted).
+			SingleLine()
+		if ui.Button(c, "Clear Filter").Clicked() {
+			a.setQuery("")
+		}
+	})
+}
+
+// chosenShortcut is the shortcut of the row chosen.
+func (a *app) chosenShortcut() (store.Shortcut, bool) {
+	s := &a.ui
+	if s.selected < 0 || s.selected >= len(s.visible) {
+		return store.Shortcut{}, false
+	}
+	return a.store.Shortcuts[s.visible[s.selected]], true
+}
+
 func (a *app) shortcutList(c *ui.Context) {
 	s := &a.ui
-	shortcuts := a.store.Shortcuts
 	s.list.Selected = &s.selected
-	s.list.Key = func(i int) any { return a.store.Shortcuts[i].ID }
-	s.list.Label = func(i int) string { return a.store.Shortcuts[i].DisplayName }
-	s.list.Reorder = func(rows []int, to int) { a.store.Move(rows, to) }
-	list := ui.List(c, &s.list, len(shortcuts), func(i int) { a.shortcutRow(c, i) }).Grow(1).Padding(6).Gap(2)
-	if s.selected >= 0 && (list.Shortcut(0, ui.KeyBackspace) || list.Shortcut(0, ui.KeyDelete)) {
-		a.remove(c, shortcuts[s.selected].ID)
+	s.list.Key = func(i int) any { return a.store.Shortcuts[s.visible[i]].ID }
+	s.list.Label = func(i int) string { return a.store.Shortcuts[s.visible[i]].DisplayName }
+	// Filtered, the rows don't drag: where among the hidden ones they
+	// would go is anyone's guess.
+	s.list.Reorder = nil
+	if s.query == "" {
+		s.list.Reorder = func(rows []int, to int) { a.store.Move(rows, to) }
+	}
+	list := ui.List(c, &s.list, len(s.visible), func(i int) { a.shortcutRow(c, i) }).Grow(1).Padding(6).Gap(2)
+	if sc, ok := a.chosenShortcut(); ok && (list.Shortcut(0, ui.KeyBackspace) || list.Shortcut(0, ui.KeyDelete)) {
+		a.remove(c, sc.ID)
 	}
 }
 
@@ -151,7 +248,7 @@ func (a *app) shortcutList(c *ui.Context) {
 func (a *app) shortcutRow(c *ui.Context, i int) {
 	t := c.Theme()
 	l := lookOf(t)
-	sc := a.store.Shortcuts[i]
+	sc := a.store.Shortcuts[a.ui.visible[i]]
 	chosen := i == a.ui.selected
 	row := ui.Row(c).Padding(8, 10, 8, 18).Gap(12).AlignItems(ui.Center).Radius(t.Radius).TextColor(t.Text)
 	hovered := row.Hovered()
@@ -205,7 +302,7 @@ func (a *app) shortcutRow(c *ui.Context, i int) {
 	row.Children(func() {
 		// A grip, as the pointer is over the row, tells that it drags.
 		grip := float32(0)
-		if hovered {
+		if hovered && a.ui.query == "" {
 			grip = 0.55
 		}
 		ui.Box(c.Key("grip")).Absolute().Left(3).Top(0).Bottom(0).Center().PassThrough().
@@ -277,7 +374,6 @@ func (a *app) setCombo(id string, combo *keys.Combo) {
 func (a *app) toolbar(c *ui.Context) {
 	t := c.Theme()
 	l := lookOf(t)
-	s := &a.ui
 	ui.Box(c).Height(1).Background(l.cardBorder)
 	ui.Toolbar(c, func() {
 		toolGroup(c, func() {
@@ -285,8 +381,9 @@ func (a *app) toolbar(c *ui.Context) {
 				a.openPicker()
 			}
 			ui.Box(c).Width(1).Height(14).Background(l.cardBorder)
-			if toolButton(c, iconMinus, "Remove Shortcut", s.selected < 0) {
-				a.remove(c, a.store.Shortcuts[s.selected].ID)
+			chosen, ok := a.chosenShortcut()
+			if toolButton(c, iconMinus, "Remove Shortcut", !ok) {
+				a.remove(c, chosen.ID)
 			}
 		})
 		ui.Spacer(c)
@@ -378,6 +475,7 @@ func (a *app) addApp(path string) {
 // added adds a shortcut, which stands out for a moment in the list.
 func (a *app) added(sc store.Shortcut) {
 	if a.store.Add(sc) {
+		a.setQuery("") // to show it
 		a.ui.fresh[sc.ID] = time.Now()
 		a.ui.list.ScrollIntoView(len(a.store.Shortcuts) - 1)
 	}

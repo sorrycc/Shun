@@ -26,6 +26,11 @@ type settingsState struct {
 
 	list     ui.ListState
 	selected int // the row chosen, or -1
+	// query filters the shortcuts by app name or bundle ID; visible holds
+	// the indices of the shortcuts that match, which the list's rows show.
+	query   string
+	search  ui.Handle
+	visible []int
 	// recording is the ID of the shortcut whose recorder takes keys.
 	recording string
 
@@ -107,6 +112,10 @@ func (a *app) view(c *ui.Context) {
 	c.OnShortcut(ui.Cmd, ui.KeyQ, mygo.App.Quit)
 	for i := range settingsTabs {
 		c.OnShortcut(ui.Cmd, ui.Key1+ui.Key(i), func() { a.ui.tab = i })
+	}
+	// ⌘F filters the shortcuts, from any tab.
+	if len(a.store.Shortcuts) > 0 {
+		c.OnShortcut(ui.Cmd, ui.KeyF, func() { a.ui.tab = tabShortcuts; a.ui.search.Focus() })
 	}
 	t := c.Theme()
 	l := lookOf(t)

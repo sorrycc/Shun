@@ -232,6 +232,47 @@ func TestComboOf(t *testing.T) {
 	}
 }
 
+func TestFilterShortcuts(t *testing.T) {
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 600, 520)
+	tt.Key(ui.Cmd, ui.KeyF)
+	tt.Type("saf")
+	tt.Frame()
+	if !tt.HasText("Safari") || tt.HasText("iTerm2") || !tt.HasText("1 of 3") {
+		t.Fatalf("filtered by name: %q", tt.Texts())
+	}
+	if a.ui.list.Reorder != nil {
+		t.Error("rows drag while filtered")
+	}
+	shot(t, tt, "filtered")
+	if err := tt.Click("Clear Filter"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Type("googlecode") // iTerm2's bundle ID
+	tt.Frame()
+	if !tt.HasText("iTerm2") || tt.HasText("Safari") {
+		t.Fatalf("filtered by bundle ID: %q", tt.Texts())
+	}
+	tt.Click("iTerm2")
+	if err := tt.Click("Remove Shortcut"); err != nil {
+		t.Fatal(err)
+	}
+	if a.store.HasApp("com.googlecode.iterm2") || !a.store.HasApp("com.apple.Safari") {
+		t.Errorf("removed the wrong one: %+v", a.store.Shortcuts)
+	}
+	tt.Click("Undo")
+	tt.Click("Filter Apps")
+	tt.Type("zzz")
+	tt.Frame()
+	if !tt.HasText("No apps match “googlecodezzz”") {
+		t.Fatalf("no empty state: %q", tt.Texts())
+	}
+	tt.Key(0, ui.KeyEscape)
+	if a.ui.query != "" || !tt.HasText("Safari") || !tt.HasText("iTerm2") || a.ui.list.Reorder == nil {
+		t.Errorf("Escape clears: query %q, texts %q", a.ui.query, tt.Texts())
+	}
+}
+
 func TestPicker(t *testing.T) {
 	a := newTestApp(t)
 	p := &a.ui.picker
