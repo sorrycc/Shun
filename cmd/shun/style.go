@@ -75,6 +75,7 @@ var settingsTabs = []settingsTab{
 	{"General", iconSliders},
 	{"Insights", iconActivity},
 	{"Privacy", iconShield},
+	{"Account", iconCloud},
 }
 
 // tabPill is the identity of the highlight behind the chosen tab, which

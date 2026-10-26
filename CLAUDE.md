@@ -40,8 +40,9 @@ SHUN_SHOTS=/tmp/shots go test ./cmd/shun        # PNGs of the Settings tabs, to 
 the menu bar icon of mygo dev's "Shun Dev.app" bundle hidden. Its event tap has the terminal's Accessibility.
 
 `mygo.json` is the configuration, as in mayoi: version, ad hoc signing, `LSUIElement`, and `updates` once the
-public key is in. Release builds get the Developer ID, notarization and the telemetry `Info.plist` keys patched into
-it by `.github/workflows/release.yml` (and `Scripts/sparkle_bridge.sh`, from `Scripts/telemetry.config`).
+public key is in. Release builds get the Developer ID and notarization patched into it by `.github/workflows/release.yml`.
+Crash reports and settings sync go to Mon (`https://mon.sorrycc.dev`, or `SHUN_MON_URL`); dev builds send crash
+reports only with `SHUN_MON_URL` set.
 
 Releasing (human): `Scripts/bump.sh patch` → tag push → `.github/workflows/release.yml` builds, signs, notarizes and
 publishes to GitHub releases, which installed apps update from. See CONTRIBUTING.md, including the one-time
@@ -50,7 +51,8 @@ Sparkle bridge for Swift installs.
 ## Architecture (key files)
 - `cmd/shun/main.go` — app lifecycle, tray menu, Settings window (made lazily), activation policy, migration, telemetry start
 - `cmd/shun/hotkeys.go` — wires the event tap (or the Carbon fallback via `mygo.GlobalShortcut`) to the engine and the store
-- `cmd/shun/settings.go` — Settings root (tabs), shared layout helpers; `tabs.go` — General, Insights, Privacy
+- `cmd/shun/settings.go` — Settings root (tabs), shared layout helpers; `tabs.go` — General, Insights, Privacy, Account
+- `cmd/shun/account.go` — settings sync with Mon: sign-in (device flow), token in the Keychain, push/pull/retry
 - `cmd/shun/style.go` — the look: palette from the theme, title-bar tabs, icon tiles, keycaps, motion presets
 - `cmd/shun/shortcuts.go` — Shortcuts tab: list (drag to reorder), rows, toolbar, drop, recipe import/export
 - `cmd/shun/picker.go` — app picker modal (`mygo.Shell.InstalledApps`); `recorder.go` — shortcut recorder widget
@@ -62,7 +64,9 @@ Sparkle bridge for Swift installs.
   UserDefaults migration (`migrate.go`), files + HotApp dir move (`files.go`)
 - `internal/usage` — 7-day activation log (usage.json), safe from any goroutine
 - `internal/keys` — key combos: Carbon key code + Carbon modifiers, CGEvent flags, labels, accelerators
-- `internal/telemetry` — crash upload, HMAC-signed
+- `internal/mon` — copy of Mon's Go client (sign-in, settings documents, crash reports); keep in step with Mayoi's
+- `internal/cloudsync` — sync engine: shortcuts by bundle ID + synced prefs, three-way merge, state in `sync.json`
+- `internal/telemetry` — crash reports (.ips) to Mon, anonymous
 
 ## Critical Conventions
 - **Threads**: MyGo runs the view, menus, tray and workspace notifications on the main thread. The event tap's
@@ -77,7 +81,8 @@ Sparkle bridge for Swift installs.
 - **LSUIElement app**: `ActivationPolicyAccessory`; opening a window flips to Regular (needed on Tahoe) and
   `refreshActivationPolicy` flips back once no window is visible.
 - **Persistence**: everything in `~/Library/Application Support/Shun/` (`shortcuts.json` with combos, `settings.json`,
-  `usage.json`, `updater.json` of MyGo's updater). The Swift app kept combos and prefs in UserDefaults;
+  `usage.json`, `updater.json` of MyGo's updater, `sync.json` of settings sync; dev builds keep Mon's token in
+  `mon-token` there, release builds in the Keychain). The Swift app kept combos and prefs in UserDefaults;
   `store.Migrate` imports them once (flag `migratedFromUserDefaults`) and leaves them in place.
 - **Store changes** call `OnChange` listeners → `hotkeys.refresh()` re-registers.
 - **Views** are functions of state rebuilt every frame: keep `ui.Element` values out of app state; use `ui.Handle`,

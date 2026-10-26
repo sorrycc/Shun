@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -11,7 +12,9 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
+	"shun/internal/cloudsync"
 	"shun/internal/keys"
+	"shun/internal/mon"
 	"shun/internal/store"
 	"shun/internal/usage"
 )
@@ -28,6 +31,8 @@ func newTestApp(t testing.TB) *app {
 	a := &app{store: s, prefs: p, usage: usage.Open(dir), icons: newIconCache(), trust: func() bool { return true }}
 	t.Cleanup(a.usage.SaveNow) // before dir goes, rather than as it goes
 	a.icons.draw = func(string) *ui.Bitmap { return nil }
+	a.cloud = newCloud(a, dir)
+	a.cloud.onMain = func(fn func()) { fn() }
 	a.ui.init()
 	iterm := store.NewShortcut("/Applications/iTerm.app", "com.googlecode.iterm2", "iTerm2")
 	iterm.Combo = &keys.Combo{KeyCode: 8, Modifiers: keys.CarbonOption}
@@ -362,7 +367,7 @@ func TestTrayItems(t *testing.T) {
 	}
 	l, acc := labels()
 	// Gone's app is missing: not listed.
-	want := []string{"Shun", "", "iTerm2", "Safari", "", "Shortcuts Enabled", "Settings…", "Check for Updates…", "", "Quit Shun"}
+	want := []string{"Shun", "", "iTerm2", "Safari", "", "Shortcuts Enabled", "Settings…", "Sign In to Sync…", "Check for Updates…", "", "Quit Shun"}
 	if !slices.Equal(l, want) {
 		t.Fatalf("items %q, want %q", l, want)
 	}
@@ -388,5 +393,71 @@ func TestReduceMotionRests(t *testing.T) {
 	}
 	if a.ui.recording == "" {
 		t.Error("not recording")
+	}
+}
+
+func TestAccountTab(t *testing.T) {
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 600, 520)
+	tt.Click("Account")
+	if !tt.HasText("Sync Your Shortcuts") || !tt.HasText("Sign In…") {
+		t.Errorf("signed out: texts %q", tt.Texts())
+	}
+	shot(t, tt, "account")
+
+	a.cloud.signin = &signin{code: "NNCD-QHTC", url: "https://mon.example/device", expires: time.Now().Add(5 * time.Minute),
+		cancel: func() {}}
+	tt.Frame()
+	for _, text := range []string{"NNCD-QHTC", "Open Browser Again", "Cancel"} {
+		if !tt.HasText(text) {
+			t.Errorf("signing in: no %q in %q", text, tt.Texts())
+		}
+	}
+	shot(t, tt, "account-code")
+	tt.Click("Cancel")
+	if a.cloud.signin != nil {
+		t.Error("Cancel left the sign-in")
+	}
+
+	a.cloud.engine.SignedIn(&mon.User{ID: "u1", Name: "Ada Lovelace", Email: "ada@example.com"})
+	tt.Frame()
+	for _, text := range []string{"Ada Lovelace", "ada@example.com", "Not synced yet.", "Sync Now", "Sign Out"} {
+		if !tt.HasText(text) {
+			t.Errorf("signed in: no %q in %q", text, tt.Texts())
+		}
+	}
+	shot(t, tt, "account-signed-in")
+	if items := a.trayItems(); !slices.ContainsFunc(items, func(it *mygo.MenuItem) bool {
+		return it.Label == "Syncing as Ada Lovelace…"
+	}) {
+		t.Error("the menu doesn't name the account")
+	}
+}
+
+func TestCloudApply(t *testing.T) {
+	a := newTestApp(t)
+	a.cloud.resolve = func(bundleID, name string) (string, bool) { return "", false }
+	l := cloudLocal{a.cloud}
+	read, _ := l.Read()
+	s := cloudsync.Of(a.store.Shortcuts, nil)
+	// The account has Safari first, with keys, iTerm2 not, and Xcode new.
+	s.Order = []string{"com.apple.Safari", "com.example.gone", "com.apple.dt.Xcode"}
+	delete(s.Shortcuts, "com.googlecode.iterm2")
+	s.Shortcuts["com.apple.Safari"] = []byte(`{"name":"Safari","keys":{"carbonKeyCode":1,"carbonModifiers":256},"enabled":true}`)
+	s.Shortcuts["com.apple.dt.Xcode"] = []byte(`{"name":"Xcode","enabled":false}`)
+	s.Settings = map[string]json.RawMessage{"globalEnabled": json.RawMessage("false")}
+	safari := a.store.Shortcuts[1]
+	if err := l.Apply(read, s); err != nil {
+		t.Fatal(err)
+	}
+	got := a.store.Shortcuts
+	if len(got) != 3 || got[0].ID != safari.ID || got[0].Combo == nil || got[2].DisplayName != "Xcode" || got[2].IsEnabled {
+		t.Errorf("shortcuts = %+v", got)
+	}
+	if a.prefs.GlobalEnabled() {
+		t.Error("Enable All Shortcuts didn't sync")
+	}
+	if err := l.Apply(read, s); err != cloudsync.ErrStale {
+		t.Errorf("a second Apply of the same read = %v, want ErrStale", err)
 	}
 }

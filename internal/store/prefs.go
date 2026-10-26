@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"log"
 	"path/filepath"
 	"sync"
@@ -69,4 +70,25 @@ func (p *Prefs) UploadedCrashes() (names []string) {
 }
 func (p *Prefs) SetUploadedCrashes(names []string) {
 	p.set(func(v *prefsData) { v.UploadedCrashes = append([]string(nil), names...) })
+}
+
+// SyncedPrefs are the keys of the preferences settings sync carries
+// between Macs; crash reports stay each Mac's choice.
+var SyncedPrefs = []string{"globalEnabled"}
+
+// Synced returns the preferences that sync, by their keys.
+func (p *Prefs) Synced() map[string]json.RawMessage {
+	on, _ := json.Marshal(p.GlobalEnabled())
+	return map[string]json.RawMessage{"globalEnabled": on}
+}
+
+// SetSynced takes the preferences that sync of m, those it has; it
+// reports whether one changed.
+func (p *Prefs) SetSynced(m map[string]json.RawMessage) (changed bool) {
+	var on bool
+	if raw, ok := m["globalEnabled"]; ok && json.Unmarshal(raw, &on) == nil && on != p.GlobalEnabled() {
+		p.SetGlobalEnabled(on)
+		changed = true
+	}
+	return changed
 }

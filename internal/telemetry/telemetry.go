@@ -1,67 +1,51 @@
-// Package telemetry uploads Shun's crash reports to the telemetry worker,
-// which the user can turn off in Settings → Privacy. Requests are signed with
-// an HMAC of their body.
+// Package telemetry sends Shun's crash reports to Mon, which the user can
+// turn off in Settings → Privacy. A report is anonymous: it goes without
+// the account's token, and with the home folder taken out.
 package telemetry
 
 import (
-	"bytes"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"fmt"
-	"io"
 	"log"
-	"mime/multipart"
-	"net/http"
-	"net/textproto"
 	"os"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
 
+	"shun/internal/mon"
 	"shun/internal/store"
 )
 
 // Config says where to send, and about the app.
 type Config struct {
-	Endpoint   string // e.g. https://telemetry.sorrycc.dev
-	IngestKey  string
+	Client     *mon.Client
 	AppVersion string
-	OSVersion  string
-	Locale     string
 	// CrashDir holds the crash reports, ~/Library/Logs/DiagnosticReports.
 	CrashDir string
 	// CrashPrefix starts the names of Shun's reports: "Shun-".
 	CrashPrefix string
-	Client      *http.Client
+	// Home is the home folder, which reports leave out.
+	Home string
 }
 
 const (
 	appID       = "shun"
 	uploadedCap = 500
+	// maxReport is the most of a report Mon takes, in bytes.
+	maxReport = 256 << 10
 )
 
-// Run uploads the crash reports, if the user allows it.
+// Run sends the crash reports, if the user allows it.
 func Run(ctx context.Context, c Config, p *store.Prefs) {
-	if c.Client == nil {
-		c.Client = http.DefaultClient
-	}
 	if p.CrashReportsEnabled() {
 		UploadCrashes(ctx, c, p)
 	}
 }
 
-// Sign returns the hex HMAC-SHA256 of a body.
-func Sign(body []byte, key string) string {
-	m := hmac.New(sha256.New, []byte(key))
-	m.Write(body)
-	return hex.EncodeToString(m.Sum(nil))
-}
-
-// UploadCrashes uploads the reports not uploaded yet, oldest first.
+// UploadCrashes sends the reports not sent yet, oldest first.
 func UploadCrashes(ctx context.Context, c Config, p *store.Prefs) {
 	entries, err := os.ReadDir(c.CrashDir)
 	if err != nil {
@@ -86,10 +70,16 @@ func UploadCrashes(ctx context.Context, c Config, p *store.Prefs) {
 		return
 	}
 	slices.SortFunc(pending, func(a, b report) int { return a.mod.Compare(b.mod) })
-	log.Printf("telemetry: uploading %d crash reports", len(pending))
+	log.Printf("telemetry: sending %d crash reports", len(pending))
 	for _, r := range pending {
-		if err := c.uploadCrash(ctx, p, r.name); err != nil {
-			log.Printf("telemetry: uploading %s: %v", r.name, err) // again at the next launch
+		data, err := os.ReadFile(filepath.Join(c.CrashDir, r.name))
+		if err == nil {
+			sctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			err = c.Client.SendCrash(sctx, c.crash(string(data), r.mod))
+			cancel()
+		}
+		if err != nil {
+			log.Printf("telemetry: sending %s: %v", r.name, err) // again at the next launch
 			continue
 		}
 		uploaded = append(uploaded, r.name)
@@ -100,60 +90,42 @@ func UploadCrashes(ctx context.Context, c Config, p *store.Prefs) {
 	p.SetUploadedCrashes(uploaded)
 }
 
-func (c Config) uploadCrash(ctx context.Context, p *store.Prefs, name string) error {
-	data, err := os.ReadFile(filepath.Join(c.CrashDir, name))
-	if err != nil {
-		return err
+// crash is the report of an .ips file's text, written at.
+func (c Config) crash(text string, at time.Time) mon.Crash {
+	cr := mon.Crash{
+		App: appID, Version: c.AppVersion, OS: runtime.GOOS, Arch: runtime.GOARCH, Runtime: runtime.Version(),
+		Kind: mon.CrashSystem, OccurredAt: at.Unix(), Log: redactHome(text, c.Home),
 	}
-	meta, err := json.Marshal(map[string]string{
-		"app":       appID,
-		"version":   c.AppVersion,
-		"osVersion": c.OSVersion,
-		"fileName":  name,
-	})
-	if err != nil {
-		return err
+	// An .ips report's first line is JSON about it, with the version of
+	// Shun that crashed, maybe older than this one.
+	first, _, _ := strings.Cut(text, "\n")
+	var ips struct {
+		AppVersion string `json:"app_version"`
 	}
-	var body bytes.Buffer
-	w := multipart.NewWriter(&body)
-	if err := w.WriteField("meta", string(meta)); err != nil {
-		return err
+	if json.Unmarshal([]byte(first), &ips) == nil && ips.AppVersion != "" {
+		cr.Version = ips.AppVersion
 	}
-	h := textproto.MIMEHeader{}
-	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename=%q`, name))
-	h.Set("Content-Type", "application/octet-stream")
-	part, err := w.CreatePart(h)
-	if err != nil {
-		return err
+	if cr.Version == "" {
+		cr.Version = "unknown" // Mon wants one
 	}
-	part.Write(data)
-	if err := w.Close(); err != nil {
-		return err
+	if len(cr.Log) > maxReport {
+		cr.Log = strings.ToValidUTF8(cr.Log[:maxReport], "")
 	}
-	return c.post(ctx, "v1/crash", w.FormDataContentType(), body.Bytes(), 30*time.Second)
+	return cr
 }
 
-func (c Config) post(ctx context.Context, path, contentType string, body []byte, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSuffix(c.Endpoint, "/")+"/"+path, bytes.NewReader(body))
-	if err != nil {
-		return err
+var homePath = regexp.MustCompile(`/Users/[^/\s"':]+`)
+
+// redactHome takes the home folders out of a report, as ~, so that it
+// says nothing of whose it is. /Users/Shared is no one's.
+func redactHome(text, home string) string {
+	if len(home) > 1 {
+		text = strings.ReplaceAll(text, home, "~")
 	}
-	req.Header.Set("Content-Type", contentType)
-	req.Header.Set("X-Telemetry-Sig", Sign(body, c.IngestKey))
-	client := c.Client
-	if client == nil {
-		client = http.DefaultClient
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 200))
-		return fmt.Errorf("status %d: %s", resp.StatusCode, snippet)
-	}
-	return nil
+	return homePath.ReplaceAllStringFunc(text, func(m string) string {
+		if m == "/Users/Shared" {
+			return m
+		}
+		return "~"
+	})
 }

@@ -40,9 +40,6 @@ func TestBundles(t *testing.T) {
 	if p, ok := AppPath("com.apple.calculator"); !ok || p != "/System/Applications/Calculator.app" {
 		t.Errorf("path %q", p)
 	}
-	if LocaleIdentifier() == "" {
-		t.Error("locale")
-	}
 }
 
 func TestDefaults(t *testing.T) {

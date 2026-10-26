@@ -5,6 +5,8 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+
+	"shun/internal/cloudsync"
 )
 
 const (
@@ -12,6 +14,7 @@ const (
 	tabGeneral
 	tabInsights
 	tabPrivacy
+	tabAccount
 )
 
 // settingsState is the Settings window's own state.
@@ -44,6 +47,8 @@ type settingsState struct {
 
 	loginItem    bool
 	confirmClear bool
+	// choosing asks, at a first sync, whose shortcuts to keep.
+	choosing bool
 
 	// Whether Shun has the Accessibility permission, and when it was asked.
 	isTrusted bool
@@ -64,7 +69,7 @@ func (s *settingsState) init() {
 // reset forgets what was under way as the window hides.
 func (s *settingsState) reset() {
 	s.picking, s.alertOpen, s.recording = false, false, ""
-	s.confirmClear = false
+	s.confirmClear, s.choosing = false, false
 }
 
 // trusted reports whether Shun has the Accessibility permission, asked at
@@ -130,10 +135,21 @@ func (a *app) view(c *ui.Context) {
 				a.insightsView(c)
 			case tabPrivacy:
 				a.privacyView(c)
+			case tabAccount:
+				a.accountView(c)
 			}
 		})
 	})
 	ui.AlertDialog(c, &a.ui.alertOpen, a.ui.alertTitle, a.ui.alertText, "OK")
+	switch ui.AlertDialog(c, &a.ui.choosing, "Keep Which Shortcuts?",
+		"This Mac and your account both have shortcuts. Keep the account's, replacing this Mac's, "+
+			"or keep this Mac's, replacing the account's. Shun asks only this once.",
+		"Cancel", "Keep This Mac's", "Use the Account's") {
+	case 1:
+		a.cloud.sync(cloudsync.UseLocal, true)
+	case 2:
+		a.cloud.sync(cloudsync.UseAccount, true)
+	}
 }
 
 // page lays out a tab of settings that scrolls.

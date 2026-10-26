@@ -29,8 +29,8 @@ permission because release builds keep the bundle ID `com.shun.Shun` and the Dev
 Releases need gitignored local files:
 
 - `.env` — R2 credentials, only for the one Sparkle bridge release (below)
-- `Scripts/telemetry.config` — telemetry endpoint + HMAC key for the Sparkle bridge's local build (CI takes them
-  from secrets; a build without them sends no telemetry)
+- `Scripts/telemetry.config` — the telemetry endpoint + HMAC key the Sparkle bridge's local build still sets (the Go
+  app sends crash reports to Mon and ignores them)
 
 If you already have a working Shun clone on this machine, copy them over:
 
@@ -52,7 +52,7 @@ Scripts/bump.sh patch    # or minor, major, or a version such as 2.0.0
 It sets the version in `mygo.json`, renames `## Unreleased` to `## <version>` in `CHANGELOG.md` (or keeps a
 `## <version>` section already there), commits and tags `v<version>`, and after asking pushes `main` and the tag. The
 [Release workflow](.github/workflows/release.yml) then builds arm64 and Intel, signed with the Developer ID and
-notarized (`mygo.json` signs ad hoc; the workflow sets the Developer ID, notarization and telemetry in it
+notarized (`mygo.json` signs ad hoc; the workflow sets the Developer ID and notarization in it
 for the build), uploads the disk images and their signed updates to the GitHub release, and publishes it. Installed apps
 check for it once a day, and from the menu bar's **Check for Updates…**; the update window shows the changelog
 section.
@@ -74,7 +74,6 @@ section.
    | `MACOS_CERTIFICATE_PASSWORD` | the password of the `.p12` |
    | `APPLE_ID`, `APPLE_TEAM_ID` | the Apple ID of the developer account, and `KU8S35TEW8` |
    | `APPLE_APP_PASSWORD` | an app-specific password of the Apple ID, from account.apple.com |
-   | `TELEMETRY_ENDPOINT_URL`, `TELEMETRY_INGEST_KEY` | as in `Scripts/telemetry.config` |
 
 3. **Public releases.** Installed apps read
    `https://github.com/sorrycc/Shun/releases/latest/download/update-darwin-<arch>.json` without signing in, so the

@@ -11,7 +11,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -21,6 +20,7 @@ import (
 
 	"shun/internal/hotkey"
 	"shun/internal/macos"
+	"shun/internal/mon"
 	"shun/internal/store"
 	"shun/internal/telemetry"
 	"shun/internal/usage"
@@ -40,6 +40,7 @@ type app struct {
 	prefs *store.Prefs
 	usage *usage.Store
 	keys  *hotkeys
+	cloud *cloud
 
 	win      *mygo.Window // Settings
 	tray     *mygo.Tray
@@ -79,6 +80,7 @@ func main() {
 	mygo.App.OnWindowCreated(a.trackWindow)
 	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) { a.quitting = true })
 	mygo.App.OnWillQuit(func(*mygo.QuitEvent) {
+		a.cloud.flush()
 		a.usage.SaveNow()
 		if a.tray != nil {
 			a.tray.Destroy()
@@ -138,6 +140,7 @@ func newApp() (*app, error) {
 		return nil, err
 	}
 	a := &app{store: s, prefs: p, usage: usage.Open(dir), icons: newIconCache(), trust: macos.IsTrusted}
+	a.cloud = newCloud(a, dir)
 	a.ui.init()
 	return a, nil
 }
@@ -153,11 +156,13 @@ func (a *app) ready() {
 	a.keys = newHotkeys(a)
 	a.store.OnChange(a.keys.refresh)
 	a.store.OnChange(a.updateTrayMenu)
+	a.store.OnChange(a.cloud.changed)
 	// Activations are logged on the event tap's thread, which must not wait
 	// for the main one.
 	a.usage.OnChange(func() { go mygo.RunOnMain(a.invalidate) })
 	a.keys.start()
 	a.setUpTray()
+	a.cloud.start()
 
 	if !macos.IsTrusted() {
 		go askForAccessibility()
@@ -256,6 +261,7 @@ func (a *app) trayItems() []*mygo.MenuItem {
 		&mygo.MenuItem{Label: "Shortcuts Enabled", Type: mygo.MenuItemCheckbox, Checked: on,
 			Click: func(it *mygo.MenuItem, _ *mygo.Window) { a.setGlobalEnabled(it.Checked) }},
 		&mygo.MenuItem{Label: "Settings…", Accelerator: "Cmd+,", Click: func(*mygo.MenuItem, *mygo.Window) { a.openSettings() }},
+		a.accountItem(),
 		&mygo.MenuItem{Label: "Check for Updates…", Click: func(*mygo.MenuItem, *mygo.Window) { a.checkForUpdates() }},
 		mygo.Separator(),
 		&mygo.MenuItem{Label: "Quit Shun", Accelerator: "Cmd+Q", Click: func(*mygo.MenuItem, *mygo.Window) { mygo.App.Quit() }},
@@ -266,9 +272,31 @@ func (a *app) trayItems() []*mygo.MenuItem {
 // maxTrayShortcuts is how many shortcuts the menu bar menu lists.
 const maxTrayShortcuts = 20
 
+// accountItem is the menu bar menu's item of settings sync: Sign In… while
+// signed out, else the account's name; both open the Account tab.
+func (a *app) accountItem() *mygo.MenuItem {
+	label := "Sign In to Sync…"
+	if name := a.cloud.account(); name != "" {
+		label = "Syncing as " + name + "…"
+	}
+	return &mygo.MenuItem{Label: label, Click: func(*mygo.MenuItem, *mygo.Window) {
+		a.ui.tab = tabAccount
+		a.openSettings()
+		if a.cloud.account() == "" && a.cloud.signin == nil {
+			a.cloud.signIn()
+		}
+	}}
+}
+
 // setGlobalEnabled turns every shortcut on or off.
 func (a *app) setGlobalEnabled(on bool) {
 	a.prefs.SetGlobalEnabled(on)
+	a.globalEnabledChanged()
+	a.cloud.changed()
+}
+
+// globalEnabledChanged shows that every shortcut was turned on or off.
+func (a *app) globalEnabledChanged() {
 	if a.keys != nil {
 		a.keys.refresh()
 	}
@@ -339,23 +367,19 @@ func askForAccessibility() {
 // accessibilitySettings opens System Settings at the Accessibility list.
 const accessibilitySettings = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
 
-// telemetryConfig returns where telemetry goes, from the Info.plist of
-// release builds; false for others.
+// telemetryConfig returns where crash reports go: to Mon, from release
+// builds and builds started with SHUN_MON_URL; false for others.
 func telemetryConfig() (telemetry.Config, bool) {
-	endpoint, key := macos.InfoString("TelemetryEndpointURL"), macos.InfoString("TelemetryIngestKey")
-	if endpoint == "" || key == "" {
+	if mygo.IsDev() && os.Getenv("SHUN_MON_URL") == "" {
 		return telemetry.Config{}, false
 	}
 	home, _ := os.UserHomeDir()
-	osVersion, _ := syscall.Sysctl("kern.osproductversion")
 	return telemetry.Config{
-		Endpoint:    endpoint,
-		IngestKey:   key,
+		Client:      mon.New(monURL()),
 		AppVersion:  mygo.App.Version(),
-		OSVersion:   osVersion,
-		Locale:      macos.LocaleIdentifier(),
 		CrashDir:    filepath.Join(home, "Library/Logs/DiagnosticReports"),
 		CrashPrefix: "Shun-",
+		Home:        home,
 	}, true
 }
 

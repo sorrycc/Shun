@@ -75,19 +75,6 @@ jobs:
             '.macos.signingIdentity = $identity | .macos.notarize = {keychainProfile: "notary", keychain: $keychain}' \
             mygo.json > "$RUNNER_TEMP/mygo.json"
           mv "$RUNNER_TEMP/mygo.json" mygo.json
-      # The telemetry endpoint and key go into Info.plist; without them the
-      # app sends none.
-      - name: Add the telemetry settings
-        env:
-          TELEMETRY_ENDPOINT_URL: ${{ secrets.TELEMETRY_ENDPOINT_URL }}
-          TELEMETRY_INGEST_KEY: ${{ secrets.TELEMETRY_INGEST_KEY }}
-        run: |
-          test -n "$TELEMETRY_ENDPOINT_URL" -a -n "$TELEMETRY_INGEST_KEY" \
-            || { echo "::error::TELEMETRY_ENDPOINT_URL and TELEMETRY_INGEST_KEY must be set"; exit 1; }
-          jq --arg url "$TELEMETRY_ENDPOINT_URL" --arg key "$TELEMETRY_INGEST_KEY" \
-            '.macos.infoPlist += {TelemetryEndpointURL: $url, TelemetryIngestKey: $key}' \
-            mygo.json > "$RUNNER_TEMP/mygo.json"
-          mv "$RUNNER_TEMP/mygo.json" mygo.json
       # mygo build only warns when it cannot sign the updates, and a release
       # without them is one installed apps never see.
       - name: Check the update signing key

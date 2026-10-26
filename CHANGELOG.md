@@ -8,6 +8,13 @@ Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## Unreleased
 - Shun no longer sends a daily usage ping, and **Settings → Privacy** drops its switch.
 - Crash reports no longer include an anonymous ID, and the **Anonymous ID** row is gone.
+- Sign in to mon.sorrycc.dev in the new **Settings → Account** tab, approving a code in the browser.
+- Signed in, your shortcuts and **Enable All Shortcuts** sync between your Macs.
+- Shortcuts changed on two Macs merge app by app, and a shortcut of an app not installed shows as missing.
+- The first sync of a Mac with shortcuts of its own asks whether to keep this Mac's or the account's.
+- The **Account** tab shows when Shun last synced, with **Sync Now**, **Manage Account** and **Sign Out**.
+- The menu bar menu gains **Sign In to Sync…**, which shows the account's name once signed in.
+- Crash reports now go to Mon, anonymously and with your home folder taken out.
 
 ## 1.2.0
 - **Settings** is redesigned, with icon tabs in the title bar and settings grouped in cards.

@@ -10,6 +10,7 @@ import (
 	"github.com/egoist/mygo/plugins/updater"
 	"github.com/egoist/mygo/ui"
 
+	"shun/internal/cloudsync"
 	"shun/internal/store"
 )
 
@@ -301,8 +302,8 @@ func (a *app) privacyView(c *ui.Context) {
 	promise := func() {
 		ui.Row(c).Gap(10).Padding(10, 12).Radius(10).Background(l.subtle).Children(func() {
 			ui.Icon(c, iconLock).FontSize(14).TextColor(t.TextMuted)
-			ui.Text(c, "We never send personal data, file contents, keystrokes, or hotkey definitions. "+
-				"Data is stored on Cloudflare under our account and auto-deleted after one year.").
+			ui.Text(c, "Crash reports are anonymous: they never carry your account, personal data, file contents, "+
+				"keystrokes, or shortcuts, and your home folder is taken out of them.").
 				Grow(1).Shrink(1).FontSize(11).TextColor(t.TextMuted).LineHeight(1.35)
 		})
 	}
@@ -316,7 +317,8 @@ func (a *app) privacyView(c *ui.Context) {
 			})
 			section(c, "On This Mac", func() {
 				settingRow(c, iconLock, tileGreen, "Your shortcuts stay local",
-					"Shortcuts, settings and usage counts are kept in ~/Library/Application Support/Shun.", func() {})
+					"Shortcuts, settings and usage counts are kept in ~/Library/Application Support/Shun, "+
+						"and shortcuts sync only once you sign in.", func() {})
 			})
 			promise()
 			return
@@ -324,10 +326,119 @@ func (a *app) privacyView(c *ui.Context) {
 		section(c, "Telemetry", func() {
 			if on := a.prefs.CrashReportsEnabled(); switchRow(c, iconBug, tileRed, "Send crash reports automatically",
 				"When Shun crashes, macOS writes a .ips file under ~/Library/Logs/DiagnosticReports/. "+
-					"We upload those on next launch so we can fix the bug.", &on) {
+					"Shun sends those to "+monHost()+" on next launch so we can fix the bug.", &on) {
 				a.prefs.SetCrashReportsEnabled(on)
 			}
 		})
 		promise()
+	})
+}
+
+// accountView is the Account tab: signing in to Mon, and how settings sync
+// goes once signed in.
+func (a *app) accountView(c *ui.Context) {
+	t := c.Theme()
+	cl := a.cloud
+	page(c, func() {
+		switch {
+		case cl.signin != nil:
+			a.signinView(c)
+		case cl.account() == "":
+			section(c, "", func() {
+				settingRow(c, iconCloud, tileBlue, "Sync Your Shortcuts",
+					"Sign in to your account at "+monHost()+" to keep your shortcuts the same on every Mac.", func() {
+						if ui.Button(c, "Sign In…").Clicked() {
+							cl.signIn()
+						}
+					})
+			})
+			if cl.failure != "" {
+				ui.Text(c, cl.failure).FontSize(12).TextColor(t.Warning).PaddingX(4)
+			}
+		default:
+			a.signedInView(c)
+		}
+		ui.Text(c, "Your shortcuts and Enable All Shortcuts sync. Usage counts and the crash report choice stay "+
+			"on this Mac. A shortcut of an app not installed here shows as missing.").
+			FontSize(11).TextColor(t.TextMuted).LineHeight(1.35).PaddingX(4)
+	})
+}
+
+// signinView shows the code to approve in the browser while a sign-in
+// waits for it.
+func (a *app) signinView(c *ui.Context) {
+	t := c.Theme()
+	l := lookOf(t)
+	cl := a.cloud
+	si := cl.signin
+	section(c, "Sign In", func() {
+		ui.Column(c).Gap(10).AlignItems(ui.Center).Padding(8, 0).Children(func() {
+			if si.code == "" {
+				ui.Spinner(c)
+				ui.Text(c, "Getting a code…").FontSize(12).TextColor(t.TextMuted)
+				return
+			}
+			ui.Text(c, "Check that your browser shows this code, then approve it.").FontSize(12).TextColor(t.TextMuted)
+			ui.Box(c).Padding(8, 16).Radius(10).Background(l.subtle).Children(func() {
+				ui.Text(c, si.code).FontSize(26).FontWeight(700).Selectable()
+			})
+			if !si.expires.IsZero() {
+				left := max(0, time.Until(si.expires).Round(time.Second))
+				ui.Text(c, fmt.Sprintf("The code expires in %d:%02d.", int(left.Minutes()), int(left.Seconds())%60)).
+					FontSize(11).TextColor(t.TextMuted)
+			}
+		})
+		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+			if ui.Button(c, "Cancel").Clicked() {
+				cl.cancelSignIn()
+			}
+			if si.url != "" && ui.Button(c, "Open Browser Again").Clicked() {
+				mygo.Shell.OpenExternal(si.url)
+			}
+		})
+	})
+}
+
+// signedInView shows whose account Shun syncs with, and how it goes.
+func (a *app) signedInView(c *ui.Context) {
+	t := c.Theme()
+	cl := a.cloud
+	st := cl.engine.State()
+	section(c, "Account", func() {
+		ui.Row(c).Gap(12).AlignItems(ui.Center).Children(func() {
+			if pic := cl.picture(); pic != nil {
+				ui.Image(c, pic).Size(36, 36).Radius(18)
+			} else {
+				ui.Box(c).Size(36, 36).Radius(18).Center().Shrink(0).Background(t.Accent.Alpha(0.14)).Children(func() {
+					ui.Icon(c, iconUser).FontSize(18).TextColor(t.Accent)
+				})
+			}
+			ui.Column(c).Grow(1).Shrink(1).Gap(2).Children(func() {
+				ui.Text(c, cl.account()).FontWeight(600).SingleLine()
+				if st.Email != "" && st.Email != cl.account() {
+					ui.Text(c, st.Email).FontSize(11).TextColor(t.TextMuted).SingleLine()
+				}
+			})
+			if ui.Button(c, "Sign Out").Clicked() {
+				cl.signOut()
+			}
+		})
+	})
+	section(c, "Settings Sync", func() {
+		icon, tint := iconCloud, tileGreen
+		if cl.failure != "" {
+			icon, tint = iconCloudOff, tileOrange
+		}
+		settingRow(c, icon, tint, "Shortcuts", cl.syncStatus(time.Now()), func() {
+			if ui.Button(c, "Sync Now").Disabled(cl.busy > 0).Clicked() {
+				cl.sync(cloudsync.Ask, true)
+			}
+		})
+		divider(c, rowIndent)
+		settingRow(c, iconUser, tileGray, "Manage Account", "Your Macs signed in, at "+monHost()+".", func() {
+			if ui.Button(c, "Open…").Clicked() {
+				mygo.Shell.OpenExternal(monURL())
+			}
+		})
 	})
 }

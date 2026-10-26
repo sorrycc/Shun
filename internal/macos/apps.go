@@ -214,20 +214,6 @@ func AppPath(bundleID string) (path string, ok bool) {
 	return path, path != ""
 }
 
-// InfoString returns a string of the app's own Info.plist, or "".
-func InfoString(key string) (s string) {
-	withPool(func() {
-		s = goString(send(send(class("NSBundle"), "mainBundle"), "objectForInfoDictionaryKey:", uintptr(nsString(key))))
-	})
-	return
-}
-
-// LocaleIdentifier returns the user's locale, such as en_US.
-func LocaleIdentifier() (s string) {
-	withPool(func() { s = goString(send(send(class("NSLocale"), "currentLocale"), "localeIdentifier")) })
-	return
-}
-
 // IsTrusted reports whether Shun has the Accessibility permission, which
 // the event tap needs.
 func IsTrusted() bool {

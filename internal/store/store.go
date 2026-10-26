@@ -177,3 +177,12 @@ func (s *Store) RefreshStaleness() bool {
 	}
 	return changed
 }
+
+// Replace makes list the shortcuts, as settings sync brings them.
+func (s *Store) Replace(list []Shortcut) {
+	for i := range list {
+		list[i].Stale = !s.AppExists(list[i].Path())
+	}
+	s.Shortcuts = list
+	s.changed()
+}
