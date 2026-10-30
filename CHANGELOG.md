@@ -5,7 +5,7 @@ All notable changes to Shun are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 1.3.0
 - Shun no longer sends a daily usage ping, and **Settings → Privacy** drops its switch.
 - Crash reports no longer include an anonymous ID, and the **Anonymous ID** row is gone.
 - Sign in to mon.sorrycc.dev in the new **Settings → Account** tab, approving a code in the browser.
